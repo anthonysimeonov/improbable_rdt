@@ -1,0 +1,6 @@
+[submodule "pytorch_contactnet"]
+	path = pytorch_contactnet
+	url = git@github.com:alinasarmiento/pytorch_contactnet.git
+[submodule "pybullet-planning"]
+	path = pybullet-planning
+	url = git@github.com:anthonysimeonov/pybullet-planning.git
