@@ -1,0 +1,13 @@
+package rrp_lcm;
+
+// Here we have a structure for sending over a set of point clouds
+struct square_matrix_t {
+    // dimension of the matrix
+    int32_t n;
+
+    // total entries
+    int32_t n_entries;
+
+    // entries of the matrix
+    float entries[n_entries];
+}

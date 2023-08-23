@@ -1,0 +1,14 @@
+package rrp_lcm;
+
+// This is used for sending and/or receiving multiple points at the same time.
+struct point_cloud_t {
+  // The `frame_name` can be empty if each image_t in `images` contains the
+  // information in it.
+  header_t header;
+
+  // The number of points.
+  int32_t num_points;
+
+  // An array of points.
+  point_t points[num_points];
+}

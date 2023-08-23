@@ -1,0 +1,17 @@
+package rrp_lcm;
+
+//Simple array for sending depth pixels
+struct simple_depth_img_t {
+    // image with z value in each pixel
+    int32_t width;
+    int32_t height;
+    int32_t size;
+    int16_t pixels[size];
+    
+    // depth scale (multiply each value in the image to get depth in m)
+    float depth_scale;
+
+    // min and max that are to be applied to the depth image for filtering
+    float depth_min;
+    float depth_max;
+}

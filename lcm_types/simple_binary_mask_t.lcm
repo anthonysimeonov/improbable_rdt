@@ -1,0 +1,7 @@
+package rrp_lcm;
+
+//Simple array for sending RGB pixels
+struct simple_binary_mask_t {
+    int32_t size;
+    boolean mask[size];
+}
