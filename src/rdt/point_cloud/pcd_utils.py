@@ -2,7 +2,7 @@ import numpy as np
 import open3d as o3d
 from airobot import log_debug
 
-from rrp_robot.utils import util, trimesh_util
+from rdt.common import util #, trimesh_util
 
 def get_largest_pcd(pcd, show_scene=False):
     region_pcd = o3d.geometry.PointCloud()

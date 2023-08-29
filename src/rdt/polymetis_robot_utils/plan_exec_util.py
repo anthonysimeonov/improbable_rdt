@@ -4,14 +4,17 @@ import time
 import trimesh
 import numpy as np
 import torch
+import pybullet as p
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 
 from rdt.common import util
+from rdt.common.franka_ik import PbPlUtils
 from rdt.polymetis_robot_utils.polymetis_util import PolymetisHelper
 from airobot import log_debug, log_warn, log_info
 
 poly_util = PolymetisHelper()
+pb_pl = PbPlUtils()
 
 
 class PlanningHelper:

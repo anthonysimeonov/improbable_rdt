@@ -10,7 +10,6 @@ import signal
 import sys
 from scipy import optimize  
 import copy
-import lcm
 import argparse
 import threading
 from scipy.spatial.transform import Rotation as R
@@ -125,7 +124,7 @@ def main(args):
     signal.signal(signal.SIGINT, util.signal_handler)
 
     calib_package_path = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
-    assert osp.exists(calib_package_path), 'Calibration file destination doesn"t exist!'
+    assert osp.exists(calib_package_path), f'Calibration file destination {calib_package_path} doesn"t exist!'
 
     with_robot = args.robot
 
@@ -143,7 +142,7 @@ def main(args):
     cam_list = [camera_names[int(idx)] for idx in args.cam_index]
     serials = [serials[int(idx)] for idx in args.cam_index]
 
-    calib_dir = osp.join(path_util.get_rpdiff_src(), 'robot/camera_calibration_files')
+    calib_dir = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
     calib_filenames = [osp.join(calib_dir, f'cam_{idx}_calib_base_to_cam.json') for idx in args.cam_index]
 
     ctx = rs.context() # Create librealsense context for managing devices
@@ -249,7 +248,8 @@ def main(args):
                 n_med = 500
                 traj_helper.set_diffik_lookahead(int(n_med * 7.0 / 100))
 
-                ik_helper = FrankaIK(gui=True, base_pos=[0, 0, 0], no_gripper=True, mc_vis=mc_vis)
+                # ik_helper = FrankaIK(gui=True, base_pos=[0, 0, 0], no_gripper=True, mc_vis=mc_vis)
+                ik_helper = FrankaIK(gui=True, base_pos=[0, 0, 0], no_gripper=False, mc_vis=mc_vis, occnet=False)
                 tmp_obstacle_dir = osp.join(path_util.get_rdt_obj_descriptions(), 'tmp_planning_obs')
                 util.safe_makedirs(tmp_obstacle_dir)
                 table_obs = trimesh.creation.box([0.77, 1.22, 0.001]) #.apply_transform(util.matrix_from_list([0.15 + 0.77/2.0, 0.0015, 0.0, 0.0, 0.0, 0.0, 1.0]))
@@ -589,7 +589,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--port_vis', type=int, default=6000, help='Port for ZMQ url (meshcat visualization)')
-    parser.add_argument('--cam_index', type=int, default=0)
+    # parser.add_argument('--cam_index', type=int, default=0)
+    parser.add_argument('--cam_index', nargs='+', help='set which cameras to get point cloud from', required=True)
     parser.add_argument('--all_cams', action='store_true')
     parser.add_argument('--robot', action='store_true')
     parser.add_argument('--data_path', type=str, default='result/panda')  

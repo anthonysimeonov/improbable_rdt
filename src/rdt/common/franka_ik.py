@@ -20,9 +20,9 @@ from pybullet_tools.utils import add_data_path, connect, dump_body, disconnect, 
     assign_link_colors, add_line, point_from_pose, remove_handles, BLUE, pairwise_collision, set_client, get_client, pairwise_link_collision, \
     plan_joint_motion, create_attachment, enable_real_time, disable_real_time, body_from_end_effector, set_pose, set_renderer
 
-from pybullet_tools.ikfast.franka_panda.ik import PANDA_INFO, FRANKA_URDF_2F140, FRANKA_URDF, FRANKA_URDF_NOGRIPPER
+from pybullet_tools.ikfast.franka_panda.ik import PANDA_INFO, FRANKA_URDF_2F140, FRANKA_URDF #, FRANKA_URDF_NOGRIPPER
 # FRANKA_URDF = FRANKA_URDF_WIDE
-FRANKA_URDF_NOGRIPPER = osp.join(pb_planning_src, FRANKA_URDF_NOGRIPPER)
+# FRANKA_URDF_NOGRIPPER = osp.join(pb_planning_src, FRANKA_URDF_NOGRIPPER)
 FRANKA_URDF = osp.join(pb_planning_src, FRANKA_URDF)
 print('FRANKA URDF: ', FRANKA_URDF)
 FRANKA_URDF_2F140 = osp.join(pb_planning_src, FRANKA_URDF_2F140)
@@ -35,8 +35,8 @@ from test_meshcat_pcd import viz_scene as V
 from test_meshcat_pcd import meshcat_pcd_show as VP
 # from test_meshcat_pcd import viz_pcd as VP
 
-from rdt.utils import util
-from rdt.collision.collision_checker import PointCollision
+from rdt.common import util
+# from rdt.collision.collision_checker import PointCollision
 # import evaluation.utils as util #, path_util
 
 

@@ -14,9 +14,9 @@ from meshcat import Visualizer
 from rdt.camera.simple_multicam import MultiRealsenseLocal
 from rdt.common.real_util import RealImageLCMSubscriber
 from rdt.segmentation.keypoint_select import ObjectKeypointSelection
-from rdt.segmentation.instance_segmentation import InstanceSegServer
-from rdt.segmentation.sam import SAMSeg
-from rdt.segmentation.annotate import Annotate
+# from rdt.segmentation.instance_segmentation import InstanceSegServer
+# from rdt.segmentation.sam import SAMSeg
+# from rdt.segmentation.annotate import Annotate
 
 
 class RealsenseInterface:
