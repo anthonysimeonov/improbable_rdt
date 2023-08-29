@@ -9,4 +9,8 @@ Python Package containing tools for interfacing with the real world in learning 
 - LCM message passing
 - etc. 
 
+## Cloning (don't forget the `--recurse` flag!!)
 
+```
+git clone --recurse git@github.com:anthonysimeonov/improbable_rdt.git
+```
