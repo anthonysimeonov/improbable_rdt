@@ -1,0 +1,8 @@
+package rdt_lcm;
+
+// A representation of a 3D point.
+struct point_t {
+    double x;
+    double y;
+    double z;
+}

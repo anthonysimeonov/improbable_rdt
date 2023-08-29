@@ -1,0 +1,10 @@
+package rdt_lcm;
+
+// This is used to create a variable size array of doubles
+struct double_array_t {
+    // Number of elements in the array
+    int32_t num_elements;
+
+    // Array values
+    double double_array[num_elements];
+}

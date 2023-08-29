@@ -1,7 +1,0 @@
-package rrp_lcm;
-
-// Contains two poses, corresponding to a right and left end effector
-struct start_goal_pose_stamped_t {
-    pose_stamped_t start_pose;
-    pose_stamped_t goal_pose;
-}

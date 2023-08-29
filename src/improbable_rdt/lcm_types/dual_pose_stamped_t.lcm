@@ -1,7 +1,0 @@
-package rrp_lcm;
-
-// Contains two poses, corresponding to a right and left end effector
-struct dual_pose_stamped_t {
-    pose_stamped_t right_pose;
-    pose_stamped_t left_pose;
-}

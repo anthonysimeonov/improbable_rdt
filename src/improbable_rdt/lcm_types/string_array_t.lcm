@@ -1,7 +1,0 @@
-package rrp_lcm;
-
-// Type for sending over multiple strings at a time. Useful for predicting high-level plans
-struct string_array_t {
-    int32_t num_strings;
-    string string_array[num_strings]; 
-}

@@ -1,0 +1,9 @@
+package rdt_lcm;
+
+// A representation of an orientation in quaternion
+struct quaternion_t {
+    double x;
+    double y;
+    double z;
+    double w;
+}

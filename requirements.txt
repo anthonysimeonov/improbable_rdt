@@ -1,0 +1,14 @@
+numpy
+scipy
+trimesh
+meshcat
+# torch (install yourself)
+# trimesh
+# airobot
+# matplotlib
+# pyrealsense2
+# open3d
+# polymetis
+# detectron2
+# segment_anything
+# python-opencv

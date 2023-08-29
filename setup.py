@@ -32,7 +32,7 @@ def read_requirements_file(filename):
 packages = find_packages('src')
 # Ensure that we don't pollute the global namespace.
 for p in packages:
-    assert p == 'improbable_rdt' or p.startswith('improbable_rdt.')
+    assert p == 'rdt' or p.startswith('rdt.')
 
 
 def pkg_files(directory):
@@ -42,23 +42,17 @@ def pkg_files(directory):
             paths.append(os.path.join('../..', path, filename))
     return paths
 
-
-extra_pkg_files = pkg_files('src/improbable_rdt/descriptions')
-
 # Gather all extension modules
 ext_modules = [
     triangle_hash_module
 ]
 
 setup(
-    name='improbable_rdt',
+    name='rdt',
     author='Anthony Simeonov',
     license='MIT',
     packages=packages,
     package_dir={'': 'src'},
-    package_data={
-        'improbable_rdt': extra_pkg_files,
-    },
     # install_requires=read_requirements_file('requirements.txt') + ['airobot @ git+https://github.com/Improbable-AI/airobot.git@panda-2f140#egg=airobot'],
     # ext_modules=cythonize(ext_modules),
 )

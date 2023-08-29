@@ -1,0 +1,7 @@
+package rdt_lcm;
+
+// A representation of a 6D pose with a timestamp and associated frame name.
+struct pose_stamped_t {
+    header_t header;
+    pose_t pose;
+}

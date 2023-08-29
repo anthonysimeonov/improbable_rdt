@@ -1,9 +1,0 @@
-package rrp_lcm;
-
-//Simple array for sending RGB pixels
-struct simple_img_t {
-    int32_t width;
-    int32_t height;
-    int32_t size;
-    int16_t pixels[size];
-}

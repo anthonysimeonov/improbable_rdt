@@ -1,7 +1,0 @@
-package rrp_lcm;
-
-// A representation of a 6D pose.
-struct pose_t {
-    point_t position;
-    quaternion_t orientation;
-}
