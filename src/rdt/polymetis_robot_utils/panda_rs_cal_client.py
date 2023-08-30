@@ -139,7 +139,7 @@ def main(args):
 
     prefix = rs_cfg.CAMERA_NAME_PREFIX
     camera_names = [f'{prefix}{i}' for i in range(len(serials))]
-    cam_list = [camera_names[int(idx)] for idx in args.cam_index]
+    cam_to_cal_list = [camera_names[int(idx)] for idx in args.cam_index]
     serials = [serials[int(idx)] for idx in args.cam_index]
 
     calib_dir = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
@@ -157,7 +157,7 @@ def main(args):
     
     done = False
     while not done:
-        for idx, cam in enumerate(camera_names):
+        for idx, cam in enumerate(cam_to_cal_list):
         # for idx, cam_and_subs in enumerate(img_subscribers):
             # cam, img_sub, info_sub = cam_and_subs
 
