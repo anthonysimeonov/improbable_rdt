@@ -9,70 +9,51 @@ import copy
 import meshcat
 import matplotlib.pyplot as plt
 import trimesh
-import lcm
+import pyrealsense2 as rs
 
-# import from airobot
 from airobot import log_info, log_warn, log_debug, log_critical, set_log_level
 
-# from panda_rrp_utils.simple_multicam import MultiRealsense
+from rdt.common import util, path_util
+from rdt.perception.realsense_util import enable_devices, RealsenseInterface
+from rdt.camera.simple_multicam import MultiRealsenseLocal
+from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
 
-from rrp_robot.utils import util, trimesh_util, lcm_util, plotly_save, path_util
-from rrp_robot.config.default_eval_cfg import get_eval_cfg_defaults
-from rrp_robot.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
-from rrp_robot.robot.simple_multicam import MultiRealsenseLocal
-from rrp_robot.segmentation.instance_segmentation import InstanceSegServer
-from rrp_robot.utils.real_util import RealImageLCMSubscriber, RealCamInfoLCMSubscriber
+try:
+    import open3d
 
-sys.path.append(osp.join(path_util.get_rrp_src(), 'lcm_types'))
-from rrp_robot.lcm_types.rrp_lcm import (
-    point_t, quaternion_t, pose_t, pose_stamped_t, start_goal_pose_stamped_t, 
-    point_cloud_t, point_cloud_array_t, simple_img_t, simple_depth_img_t, square_matrix_t)
+    def o3d_fps(np_pcd, num_samples=1024):
+        print(f'Running farthest point sampling with {num_samples} points')
+        o3d_pcd = open3d.geometry.PointCloud()
+        o3d_pcd.points = open3d.utility.Vector3dVector(np_pcd)
 
-import open3d
-def o3d_fps(np_pcd, num_samples=1024):
-    print(f'Running farthest point sampling with {num_samples} points')
-    o3d_pcd = open3d.geometry.PointCloud()
-    o3d_pcd.points = open3d.utility.Vector3dVector(np_pcd)
+        o3d_pcd_ds = o3d_pcd.farthest_point_down_sample(num_samples=num_samples)
+        return np.asarray(o3d_pcd_ds.points)
 
-    o3d_pcd_ds = o3d_pcd.farthest_point_down_sample(num_samples=num_samples)
-    return np.asarray(o3d_pcd_ds.points)
+    def o3d_vds(np_pcd, voxel_size=0.0025):
+        print(f'Running voxel down sampling with {voxel_size} voxel_size')
+        o3d_pcd = open3d.geometry.PointCloud()
+        o3d_pcd.points = open3d.utility.Vector3dVector(np_pcd)
 
-def o3d_vds(np_pcd, voxel_size=0.0025):
-    print(f'Running voxel down sampling with {voxel_size} voxel_size')
-    o3d_pcd = open3d.geometry.PointCloud()
-    o3d_pcd.points = open3d.utility.Vector3dVector(np_pcd)
+        o3d_pcd_ds = o3d_pcd.voxel_down_sample(voxel_size=voxel_size)
+        return np.asarray(o3d_pcd_ds.points)
 
-    o3d_pcd_ds = o3d_pcd.voxel_down_sample(voxel_size=voxel_size)
-    return np.asarray(o3d_pcd_ds.points)
+except ImportError as e:
+    print(f'Import Error with open3d: {e}, open3d downsampling functions not available')
 
+    def o3d_fps(np_pcd, num_samples=1024):
+        print(f'No open3d, returning same pcd')
+        return np_pcd
 
-def lcm_sub_thread(lc):
-    while True:
-        lc.handle_timeout(1)
+    def o3d_vds(np_pcd, voxel_size=0.0025):
+        print(f'No open3d, returning same pcd')
+        return np_pcd
 
 
 def main(args):
-    np.random.seed(args.seed)
-    random.seed(args.seed)
     signal.signal(signal.SIGINT, util.signal_handler)
-
-    # create interfaces
-    lc = lcm.LCM("udpm://239.255.76.67:7667?ttl=0")
-
-    lc_th = threading.Thread(target=lcm_sub_thread, args=(lc,))
-    lc_th.daemon = True
-    lc_th.start()
 
     mc_vis = meshcat.Visualizer(zmq_url='tcp://127.0.0.1:6001')
     mc_vis['scene'].delete()
-
-    cfg = get_eval_cfg_defaults()
-    config_fname = osp.join(path_util.get_rrp_config(), 'eval_cfgs', args.config)
-    if osp.exists(config_fname):
-        cfg.merge_from_file(config_fname)
-    else:
-        log_info(f'Config file {config_fname} does not exist, using defaults')
-    cfg.freeze()
 
     # setup camera interfaces as LCM subscribers
     rs_cfg = get_default_multi_realsense_cfg()
@@ -86,23 +67,22 @@ def main(args):
     prefix = rs_cfg.CAMERA_NAME_PREFIX
     camera_names = [f'{prefix}{i}' for i in range(len(serials))]
     cam_list = [camera_names[int(idx)] for idx in args.cam_index]
+    serial_list = [serials[int(idx)] for idx in args.cam_index]
 
-    # update the topic names based on each individual camera
-    rgb_sub_names = [f'{cam_name}_{rgb_topic_name_suffix}' for cam_name in camera_names]
-    depth_sub_names = [f'{cam_name}_{depth_topic_name_suffix}' for cam_name in camera_names]
-    info_sub_names = [f'{cam_name}_{info_topic_name_suffix}' for cam_name in camera_names]
-    pose_sub_names = [f'{cam_name}_{pose_topic_name_suffix}' for cam_name in camera_names]
-
-    img_subscribers = []
-    for i, name in enumerate(cam_list):
-        img_sub = RealImageLCMSubscriber(lc, rgb_sub_names[i], depth_sub_names[i])
-        info_sub = RealCamInfoLCMSubscriber(lc, pose_sub_names[i], info_sub_names[i])
-        img_subscribers.append((name, img_sub, info_sub))
-    
-    calib_dir = osp.join(path_util.get_rrp_src(), 'robot/camera_calibration_files')
+    calib_dir = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
     calib_filenames = [osp.join(calib_dir, f'cam_{idx}_calib_base_to_cam.json') for idx in args.cam_index]
 
+    ctx = rs.context() # Create librealsense context for managing devices
+
+    # Define some constants 
+    resolution_width = 640 # pixels
+    resolution_height = 480 # pixels
+    frame_rate = 30  # fps
+
+    pipelines = enable_devices(serial_list, ctx, resolution_width, resolution_height, frame_rate)
+
     cams = MultiRealsenseLocal(cam_list, calib_filenames)
+    rs_interface = RealsenseInterface()
 
     while True:
 
@@ -125,10 +105,10 @@ def main(args):
         ]
             
         for idx, cam in enumerate(cams.cams):
-            rgb, depth = img_subscribers[idx][1].get_rgb_and_depth(block=True)
+            rgb, depth = rs_interface.get_rgb_and_depth_image(pipelines[idx])
             rgb_imgs.append(rgb)
 
-            cam_intrinsics = img_subscribers[idx][2].get_cam_intrinsics(block=True)
+            cam_intrinsics = rs_interface.get_intrinsics_mat(pipelines[idx])
             cam.cam_int_mat = cam_intrinsics
             cam._init_pers_mat()
             cam_pose_world = cam.cam_ext_mat
@@ -178,10 +158,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--config', type=str, default='base_config.yaml')
     parser.add_argument('--cam_index', nargs='+', help='set which cameras to get point cloud from', required=True)
-    parser.add_argument('--seg_viz', action='store_true')
 
     args = parser.parse_args()
 
