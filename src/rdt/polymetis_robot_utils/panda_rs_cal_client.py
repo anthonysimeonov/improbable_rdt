@@ -10,7 +10,6 @@ import signal
 import sys
 from scipy import optimize  
 import copy
-import lcm
 import argparse
 import threading
 from scipy.spatial.transform import Rotation as R
@@ -26,7 +25,7 @@ from rdt.common.franka_ik import FrankaIK
 from rdt.polymetis_robot_utils.plan_exec_util import PlanningHelper
 from rdt.polymetis_robot_utils.polymetis_util import PolymetisHelper
 from rdt.polymetis_robot_utils.traj_util import PolymetisTrajectoryUtil
-from rdt.perception.perception_util import enable_devices, RealsenseInterface
+from rdt.perception.realsense_util import enable_devices, RealsenseInterface
 
 from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
 
@@ -125,7 +124,7 @@ def main(args):
     signal.signal(signal.SIGINT, util.signal_handler)
 
     calib_package_path = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
-    assert osp.exists(calib_package_path), 'Calibration file destination doesn"t exist!'
+    assert osp.exists(calib_package_path), f'Calibration file destination {calib_package_path} doesn"t exist!'
 
     with_robot = args.robot
 
@@ -143,7 +142,7 @@ def main(args):
     cam_list = [camera_names[int(idx)] for idx in args.cam_index]
     serials = [serials[int(idx)] for idx in args.cam_index]
 
-    calib_dir = osp.join(path_util.get_rpdiff_src(), 'robot/camera_calibration_files')
+    calib_dir = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
     calib_filenames = [osp.join(calib_dir, f'cam_{idx}_calib_base_to_cam.json') for idx in args.cam_index]
 
     ctx = rs.context() # Create librealsense context for managing devices
@@ -293,7 +292,8 @@ def main(args):
                 # cam_cal_box = trimesh.creation.box([0.01, 0.12, 0.17])
                 cam_cal_box.apply_translation(np.array([0.0, 0.0, 0.17/2]))
                 planning.remove_all_attachments()
-                planning.attach_obj(cam_cal_box, grasp_pose_mat_world=np.eye(4), name='checkerboard.obj')
+                if args.attach_obj:
+                    planning.attach_obj(cam_cal_box, grasp_pose_mat_world=np.eye(4), name='checkerboard.obj')
 
                 home_plan = planning.plan_home()
                 if args.reset_pose:
@@ -589,7 +589,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--port_vis', type=int, default=6000, help='Port for ZMQ url (meshcat visualization)')
-    parser.add_argument('--cam_index', type=int, default=0)
+    parser.add_argument('--cam_index', nargs='+', help='set which cameras to get point cloud from', required=True)
     parser.add_argument('--all_cams', action='store_true')
     parser.add_argument('--robot', action='store_true')
     parser.add_argument('--data_path', type=str, default='result/panda')  
@@ -598,6 +598,7 @@ if __name__ == '__main__':
     parser.add_argument('--reset_pose', action='store_true')
     # parser.add_argument('--start_at_current_pose', action='store_true')
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--attach_obj', action='store_true')
     args = parser.parse_args()
 
     main(args)

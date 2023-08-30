@@ -2,31 +2,8 @@ import numpy as np
 import open3d as o3d
 from airobot import log_debug
 
-from rrp_robot.utils import util, trimesh_util
+from rdt.common import util #, trimesh_util
 
-def get_largest_pcd(pcd, show_scene=False):
-    region_pcd = o3d.geometry.PointCloud()
-    region_pcd.points = o3d.utility.Vector3dVector(pcd)
-    labels = np.array(region_pcd.cluster_dbscan(eps=0.008, min_points=50))
-
-    clusters_detected = np.unique(labels)
-    pcd_clusters = []
-    cluster_sizes = []
-    for seg_idx in clusters_detected:
-        seg_inds = np.where(labels == seg_idx)[0]
-        cluster = pcd[seg_inds]
-        pcd_clusters.append(cluster)
-        sz = cluster.shape[0]
-        cluster_sizes.append(sz)
-    top2sz = np.argsort(cluster_sizes)[-1]
-
-    if show_scene:
-        pcds = []
-        for label in set(labels):
-            label_pcd = pcd[np.where(labels == label)]
-            pcds.append(label_pcd)
-        trimesh_util.trimesh_show(pcds)
-    return pcd_clusters[top2sz]
 
 def extend_pcds(cam_pcds, pcd_list, cam_scores, pcd_scores, threshold=0.08):
     '''
@@ -104,7 +81,9 @@ def manually_segment_pcd(full_pcd, bounds=None, mean_inliers=False, downsample=F
         crop_pcd = crop_pcd[perm[:size]]
 
     if show:
-        trimesh_util.trimesh_show([crop_pcd])
+        # trimesh_util.trimesh_show([crop_pcd])
+        print(f'Show not implemented')
+        pass
 
     return crop_pcd
 
