@@ -1,0 +1,4 @@
+cam0_workspace_limits = np.asarray([[375, 500], [-390, -300], [250, 300]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
+cam1_workspace_limits = np.asarray([[375, 550], [0, 250], [50, 150]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
+cam2_workspace_limits = np.asarray([[400, 550], [-250, 250], [250, 350]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
+cam3_workspace_limits = np.asarray([[400, 550], [-250, -250], [450, 550]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS

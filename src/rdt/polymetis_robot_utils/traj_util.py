@@ -156,7 +156,6 @@ class PolymetisTrajectoryUtil:
         Returns:
             waypoints: List of waypoints
         """
-
         if time_to_go is None:
             time_to_go = self._adaptive_time_to_go_full_path(position_path) / time_scaling
         hz = self.robot.hz
@@ -218,7 +217,6 @@ class PolymetisTrajectoryUtil:
                 traj_ind_start = traj_ind_end
                 continue
             # print(f'Start: {traj_ind_start}, End: {traj_ind_end}, Total: {p_traj.shape[0]}')
-
             pi = p_traj[traj_ind_start:traj_ind_end, None]
             pdi = pd_traj[traj_ind_start:traj_ind_end, None]
             pddi = pdd_traj[traj_ind_start:traj_ind_end, None]
@@ -232,8 +230,12 @@ class PolymetisTrajectoryUtil:
                 raise RuntimeError(e)
                 return 
 
-            qd_traj = D[None, :] * pdi * scale
-            qdd_traj = D[None, :] * pddi * scale
+            if not pi.max() == pi.min(): # ow scale is inf
+                qd_traj = D[None, :] * pdi * scale
+                qdd_traj = D[None, :] * pddi * scale
+            else:
+                qd_traj = D[None, :] * pdi
+                qdd_traj = D[None, :] * pddi
 
             deltas = qd_traj * dt 
             q_traj = start + torch.cumsum(deltas, dim=0)
@@ -315,25 +317,25 @@ class PolymetisTrajectoryUtil:
             return -1
 
         # Create & execute policy
-        # torch_policy = toco.policies.JointTrajectoryExecutor(
-        #     joint_pos_trajectory=[waypoint["position"] for waypoint in waypoints],
-        #     joint_vel_trajectory=[waypoint["velocity"] for waypoint in waypoints],
-        #     Kq=self.Kq_default if Kq is None else Kq,
-        #     Kqd=self.Kqd_default if Kqd is None else Kqd,
-        #     Kx=self.Kx_default,
-        #     Kxd=self.Kxd_default,
-        #     robot_model=self.robot_model,
-        #     ignore_gravity=self.use_grav_comp,
-        # )
-
         torch_policy = toco.policies.JointTrajectoryExecutor(
             joint_pos_trajectory=[waypoint["position"] for waypoint in waypoints],
             joint_vel_trajectory=[waypoint["velocity"] for waypoint in waypoints],
-            Kp=self.Kq_default if Kq is None else Kq,
-            Kd=self.Kqd_default if Kqd is None else Kqd,
+            Kq=self.Kq_default if Kq is None else Kq,
+            Kqd=self.Kqd_default if Kqd is None else Kqd,
+            Kx=self.Kx_default,
+            Kxd=self.Kxd_default,
             robot_model=self.robot_model,
             ignore_gravity=self.use_grav_comp,
         )
+
+        # torch_policy = toco.policies.JointTrajectoryExecutor(
+        #     joint_pos_trajectory=[waypoint["position"] for waypoint in waypoints],
+        #     joint_vel_trajectory=[waypoint["velocity"] for waypoint in waypoints],
+        #     # Kp=self.Kq_default if Kq is None else Kq,
+        #     # Kd=self.Kqd_default if Kqd is None else Kqd,
+        #     robot_model=self.robot_model,
+        #     ignore_gravity=self.use_grav_comp,
+        # )
 
         return self.robot.send_torch_policy(torch_policy=torch_policy, **kwargs)
     
@@ -397,6 +399,7 @@ class PolymetisTrajectoryUtil:
             max_idx = np.argmax(np.max(joint_vel_desired, axis=1))
             print(f'Max velocity is {joint_vel_desired[max_idx]}')
             if np.max(np.absolute(joint_vel_desired[max_idx])) > 2.7:
+                print(f'Max velocity is over our limit (2.7), returning None')
                 return
 
             if execute:

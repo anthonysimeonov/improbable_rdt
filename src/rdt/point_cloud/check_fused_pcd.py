@@ -52,7 +52,7 @@ except ImportError as e:
 def main(args):
     signal.signal(signal.SIGINT, util.signal_handler)
 
-    mc_vis = meshcat.Visualizer(zmq_url='tcp://127.0.0.1:6001')
+    mc_vis = meshcat.Visualizer(zmq_url='tcp://127.0.0.1:6000')
     mc_vis['scene'].delete()
 
     # setup camera interfaces as LCM subscribers
@@ -66,12 +66,15 @@ def main(args):
 
     prefix = rs_cfg.CAMERA_NAME_PREFIX
     camera_names = [f'{prefix}{i}' for i in range(len(serials))]
-    cam_list = [camera_names[int(idx)] for idx in args.cam_index]
-    serial_list = [serials[int(idx)] for idx in args.cam_index]
+    cam_idx = [1,2]
+    cam_list = [camera_names[int(idx)] for idx in cam_idx]
+    serial_list = [serials[int(idx)] for idx in cam_idx]
+    #cam_list = [camera_names[int(idx)] for idx in args.cam_index]
+    #serial_list = [serials[int(idx)] for idx in args.cam_index]
 
     calib_dir = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
-    calib_filenames = [osp.join(calib_dir, f'cam_{idx}_calib_base_to_cam.json') for idx in args.cam_index]
-
+    #calib_filenames = [osp.join(calib_dir, f'cam_{idx}_calib_base_to_cam.json') for idx in args.cam_index]
+    calib_filenames = [osp.join(calib_dir, f'cam_{idx}_calib_base_to_cam.json') for idx in cam_idx]
     ctx = rs.context() # Create librealsense context for managing devices
 
     # Define some constants 

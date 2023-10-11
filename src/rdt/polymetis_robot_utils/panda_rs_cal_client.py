@@ -29,7 +29,7 @@ from rdt.perception.realsense_util import enable_devices, RealsenseInterface
 
 from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
 
-
+from transforms3d.euler import quat2euler, euler2quat
 poly_util = PolymetisHelper()
 
 
@@ -61,7 +61,7 @@ cam012_home_joints = {
 # cam0_workspace_limits = np.asarray([[400, 425], [-100, 100], [225, 250]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
 
 cam0_workspace_limits = np.asarray([[375, 500], [-390, -300], [250, 300]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
-cam1_workspace_limits = np.asarray([[375, 500], [-390, -300], [200, 250]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
+cam1_workspace_limits = np.asarray([[400, 550], [-250, 0], [300, 450]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
 cam2_workspace_limits = np.asarray([[400, 550], [-250, 250], [250, 350]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
 cam3_workspace_limits = np.asarray([[400, 550], [-250, -250], [450, 550]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
 
@@ -154,7 +154,9 @@ def main(args):
 
     pipelines = enable_devices(serials, ctx, resolution_width, resolution_height, frame_rate)
 
-    
+    # print("here")
+    # from IPython import embed; embed()
+
     done = False
     while not done:
         for idx, cam in enumerate(cam_to_cal_list):
@@ -165,7 +167,7 @@ def main(args):
             if not osp.exists(save_dir):
                 os.makedirs(save_dir)
 
-            calib = RealsenseInterface()
+            calib = RealsenseInterface(apply_scale_depth=True)
             cam_intrinsics = calib.get_intrinsics_mat(pipelines[idx])
             if np.array_equal(np.eye(3), cam_intrinsics):
                 while True:
@@ -303,6 +305,8 @@ def main(args):
                         from IPython import embed; embed()
                         return
                     robot.start_cartesian_impedance(Kx=torch.zeros(6), Kxd=torch.zeros(6))
+                    # robot.start_joint_impedance(Kx=torch.zeros(6), Kxd=torch.zeros(6))
+                    # robot.start_cartesian_impedance(Kx=None, Kxd=None)
                     time.sleep(2.0)
 
                     val = input('Please manually move the robot to a good initial configuration near the center of the workspace, and press "enter" to begin')
@@ -315,6 +319,9 @@ def main(args):
                 # Move robot to each calibration point in workspace
                 log_info('Collecting data...')
                 current_pose = copy.deepcopy(robot.get_ee_pose())
+                nominal_ori_rot = torch.tensor( euler2quat(-0.207,0.013, -0.06))
+
+                current_pose = (current_pose[0],nominal_ori_rot)
                 nominal_ori_mat = poly_util.polypose2mat(current_pose)[:-1, :-1]
                 for calib_pt_idx in range(num_calib_grid_pts):
                     robot_position = calib_grid_pts[calib_pt_idx, :]
@@ -334,7 +341,7 @@ def main(args):
 
                     current_pose = robot.get_ee_pose()
                     current_pose_mat = poly_util.polypose2mat(current_pose)
-                    to_new_pose_mats = planning.interpolate_pose(current_pose_mat, new_pose_mat, 500)
+                    to_new_pose_mats = planning.interpolate_pose(current_pose_mat, new_pose_mat, 25)
                     for i in range(len(to_new_pose_mats)):
                         if i % 50 == 0:
                             util.meshcat_frame_show(mc_vis, f'scene/poses/to_next/{i}', to_new_pose_mats[i])
@@ -356,6 +363,10 @@ def main(args):
                                 precompute=True,
                                 execute=False,
                                 total_time=move_time)
+                            if joint_traj_diffik is None:
+                                print(f'Infeasible DiffIK (traj_helper.diffik_traj returned None)...')
+                                from IPython import embed; embed()
+                                return
 
                             joint_traj_diffik_list = [val.tolist() for val in joint_traj_diffik]
                             log_info(f'Checking feasibility of DiffIK traj...')
