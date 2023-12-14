@@ -14,3 +14,33 @@ Python Package containing tools for interfacing with the real world in learning 
 ```
 git clone --recurse git@github.com:anthonysimeonov/improbable_rdt.git
 ```
+
+## Common setup for `polymetis``
+```
+# install mamba (so much faster than conda)
+conda install -n base -c conda-forge mamba
+
+# use mamba (or conda, if you didn't install mamba)
+mamba env create -f polymetis_conda_env.yml
+
+# some other installs
+pip install cython
+
+# install rdt
+pip install -e .
+
+# install LCM
+cd /path/to/lcm  # ~/repos/source/lcm on my machine
+cd lcm-python
+pip install .
+```
+
+## More instructions
+For spacemouse
+```
+numpy
+git+https://github.com/cheng-chi/spnav
+termcolor
+atomics
+scipy
+```
