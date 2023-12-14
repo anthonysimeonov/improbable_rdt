@@ -3,7 +3,8 @@ import os, os.path as osp
 import time
 import pyrealsense2 as rs
 import numpy as np
-import cv2 as cv
+import cv2
+import zlib
 import multiprocessing
 import argparse
 import threading
@@ -11,10 +12,11 @@ import copy
 
 import lcm
 
-from rrp_robot.utils import path_util, lcm_util
-from rrp_robot.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
-from rrp_robot.utils.real_util import RealImageLCMSubscriber, RealCamInfoLCMSubscriber
+from rdt.common import path_util, lcm_util
+from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
+from rdt.common.real_util import RealImageLCMSubscriber, RealCamInfoLCMSubscriber
 
+from rdt.lcm_types.rdt_lcm import img_t
 
 def subscriber_visualize(subs):
     for (name, img_sub, info_sub) in subs:
@@ -24,21 +26,21 @@ def subscriber_visualize(subs):
         # intrinsics = info_sub.get_cam_intrinsics()
 
         # Render images
-        depth_colormap = cv.applyColorMap(cv.convertScaleAbs(depth_image, alpha=0.03), cv.COLORMAP_JET)
+        depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
-        show_images = np.hstack((cv.cvtColor(rgb_image, cv.COLOR_RGB2BGR), depth_colormap))
-        cv.imshow(f'RealSense_{name}', show_images)
-        key = cv.waitKey(1)
+        show_images = np.hstack((cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR), depth_colormap))
+        cv2.imshow(f'RealSense_{name}', show_images)
+        key = cv2.waitKey(1)
         # Press esc or 'q' to close the image window
         if key & 0xFF == ord('q') or key == 27:
-            cv.destroyAllWindows()
+            cv2.destroyAllWindows()
             return True
             
         # Save images and depth maps from both cameras by pressing 's'
         if key==115:
             now = time.time()
-            cv.imwrite(f'{name}_{now}_aligned_depth.png', depth_image)
-            cv.imwrite(f'{name}_{now}_aligned_color.png', rgb_image)
+            cv2.imwrite(f'{name}_{now}_aligned_depth.png', depth_image)
+            cv2.imwrite(f'{name}_{now}_aligned_color.png', rgb_image)
             print('Save')
 
 
@@ -84,6 +86,9 @@ def visualizer_process_target():
         if exit == True:
             print('Program closing...')
             break
+
+        time.sleep(0.001)
+
     return
 
 
@@ -123,6 +128,96 @@ def pipeline_stop(pipelines):
         pipe.stop() 
 
 
+def publish_lcm_loop(lc, rgb_topic_names, depth_topic_names, info_topic_names, pose_topic_names,
+                     pipelines, publish_every_t, publish_camera_info=True):
+    align_to = rs.stream.color
+    align = rs.align(align_to)
+
+    last_pub_t = time.time()
+    while True:
+        for (device,pipe) in pipelines:
+            try:
+                # Get frameset of color and depth
+                frames = pipe.wait_for_frames(100)
+            except RuntimeError as e:
+                print(f"Couldn't get frame for device: {device}")
+                continue
+            # frames.get_depth_frame() is a 640x360 depth image
+            # Align the depth frame to color frame
+            aligned_frames = align.process(frames)
+
+            # Get aligned frames
+            aligned_depth_frame = aligned_frames.get_depth_frame() # aligned_depth_frame is a 640x480 depth image
+            color_frame = aligned_frames.get_color_frame()
+
+            # Validate that both frames are valid
+            if not aligned_depth_frame or not color_frame:
+                continue
+
+            depth_image = np.asanyarray(aligned_depth_frame.get_data())
+            color_image = np.asanyarray(color_frame.get_data())
+
+            # clip depth to be valid 16-bit image (depth values that far away are wrong anyways)
+            clipped_depth_image = np.clip(depth_image, -32767, 32767)
+
+            # # publish images
+            # rgb_msg = lcm_util.np2img_t(color_image.astype(np.uint8))
+            # depth_msg = lcm_util.np2img_t(clipped_depth_image, depth=True)
+            # # depth_msg = lcm_util.np2img_t(clipped_depth_image.astype(np.uint16), depth=True)
+
+            if False:
+                # Intrinsics & Extrinsics
+                depth_intrin = aligned_depth_frame.profile.as_video_stream_profile().intrinsics
+                color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
+                depth_to_color_extrin = aligned_depth_frame.profile.get_extrinsics_to(color_frame.profile)
+
+                # Depth scale - units of the values inside a depth frame, i.e how to convert the value to units of 1 meter
+                depth_sensor = pipe.get_active_profile().get_device().first_depth_sensor()
+                depth_scale = depth_sensor.get_depth_scale()
+
+                intrinsics_matrix = np.array(
+                    [[depth_intrin.fx, 0., depth_intrin.ppx],
+                    [0., depth_intrin.fy, depth_intrin.ppy],
+                    [0., 0., 1.]]
+                )
+
+                cam_int_msg = lcm_util.pack_square_matrix(intrinsics_matrix)
+
+            now = time.time()
+            # publish_this_loop = (now - last_pub_t) >= publish_every_t
+            publish_this_loop = True
+            if publish_this_loop:
+                
+                start_pub = time.time()
+                rgb_msg = img_t()
+                rgb_msg.width = color_image.shape[1]
+                rgb_msg.height = color_image.shape[1]
+
+                depth_msg = img_t()
+                depth_msg.width = depth_image.shape[1]
+                depth_msg.height = depth_image.shape[1]
+
+                color_retval, color_buf = cv2.imencode(".jpg", color_image)
+                depth_retval, depth_buf = cv2.imencode(".jpg", depth_image)
+                if color_retval and depth_retval:
+                    rgb_msg.data = color_buf
+                    rgb_msg.size = color_buf.size
+                    depth_msg.data = depth_buf
+                    depth_msg.size = depth_buf.size
+
+                lc.publish(rgb_topic_names[device], rgb_msg.encode())
+                lc.publish(depth_topic_names[device], depth_msg.encode())
+                end_pub = time.time()
+
+                if False:
+                    # let's also get out the intrinsics/camera info, if we want to send that out as well
+                    if publish_camera_info:
+                        lc.publish(info_topic_names[device], cam_int_msg.encode())
+                print(f'Delta: {now - last_pub_t}')
+                print(f'Pub: {end_pub - start_pub}')
+                last_pub_t = time.time()
+
+
 def publish_lcm(lc, rgb_topic_names, depth_topic_names, info_topic_names, pose_topic_names,
             pipelines, publish_camera_info=True):
     align_to = rs.stream.color
@@ -154,28 +249,50 @@ def publish_lcm(lc, rgb_topic_names, depth_topic_names, info_topic_names, pose_t
         clipped_depth_image = np.clip(depth_image, -32767, 32767)
 
         # publish images
-        rgb_msg = lcm_util.np2img_t(color_image.astype(np.uint8))
-        depth_msg = lcm_util.np2img_t(clipped_depth_image, depth=True)
+        # rgb_msg = lcm_util.np2img_t(color_image.astype(np.uint8))
+        # depth_msg = lcm_util.np2img_t(clipped_depth_image, depth=True)
+
+        rgb_msg = img_t()
+        rgb_msg.width = color_image.shape[1]
+        rgb_msg.height = color_image.shape[1]
+
+        depth_msg = img_t()
+        depth_msg.width = depth_image.shape[1]
+        depth_msg.height = depth_image.shape[1]
+
+        color_retval, color_buf = cv2.imencode(".jpg", color_image)
+        # depth_retval, depth_buf = cv2.imencode(".jpg", depth_image)
+        depth_retval = True
+        depth_image_bytes = depth_image.tobytes()
+        depth_buf = zlib.compress(depth_image_bytes)
+
+        if color_retval and depth_retval:
+            rgb_msg.data = color_buf
+            rgb_msg.size = color_buf.size
+            depth_msg.data = depth_buf
+            depth_msg.size = len(depth_buf)
+
         # depth_msg = lcm_util.np2img_t(clipped_depth_image.astype(np.uint16), depth=True)
         lc.publish(rgb_topic_names[device], rgb_msg.encode())
         lc.publish(depth_topic_names[device], depth_msg.encode())
-        
-        # let's also get out the intrinsics/camera info, if we want to send that out as well
-        if publish_camera_info:
-            # Intrinsics & Extrinsics
-            depth_intrin = aligned_depth_frame.profile.as_video_stream_profile().intrinsics
-            color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
-            depth_to_color_extrin = aligned_depth_frame.profile.get_extrinsics_to(color_frame.profile)
 
-            # Depth scale - units of the values inside a depth frame, i.e how to convert the value to units of 1 meter
-            depth_sensor = pipe.get_active_profile().get_device().first_depth_sensor()
-            depth_scale = depth_sensor.get_depth_scale()
+        if False:        
+            # let's also get out the intrinsics/camera info, if we want to send that out as well
+            if publish_camera_info:
+                # Intrinsics & Extrinsics
+                depth_intrin = aligned_depth_frame.profile.as_video_stream_profile().intrinsics
+                color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
+                depth_to_color_extrin = aligned_depth_frame.profile.get_extrinsics_to(color_frame.profile)
 
-            intrinsics_matrix = np.array(
-                [[depth_intrin.fx, 0., depth_intrin.ppx],
-                [0., depth_intrin.fy, depth_intrin.ppy],
-                [0., 0., 1.]]
-            )
+                # Depth scale - units of the values inside a depth frame, i.e how to convert the value to units of 1 meter
+                depth_sensor = pipe.get_active_profile().get_device().first_depth_sensor()
+                depth_scale = depth_sensor.get_depth_scale()
+
+                intrinsics_matrix = np.array(
+                    [[depth_intrin.fx, 0., depth_intrin.ppx],
+                    [0., depth_intrin.fy, depth_intrin.ppy],
+                    [0., 0., 1.]]
+                )
 
             cam_int_msg = lcm_util.pack_square_matrix(intrinsics_matrix)
             lc.publish(info_topic_names[device], cam_int_msg.encode())
@@ -209,20 +326,20 @@ def Visualize(pipelines):
         color_image = np.asanyarray(color_frame.get_data())
 
         # Render images
-        depth_colormap = cv.applyColorMap(cv.convertScaleAbs(depth_image, alpha=0.03), cv.COLORMAP_JET)
+        depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
-        show_images = np.hstack((cv.cvtColor(color_image, cv.COLOR_RGB2BGR), depth_colormap))
-        cv.imshow('RealSense' + device, show_images)
-        key = cv.waitKey(1)
+        show_images = np.hstack((cv2.cvtColor(color_image, cv2.COLOR_RGB2BGR), depth_colormap))
+        cv2.imshow('RealSense' + device, show_images)
+        key = cv2.waitKey(1)
         # Press esc or 'q' to close the image window
         if key & 0xFF == ord('q') or key == 27:
-            cv.destroyAllWindows()
+            cv2.destroyAllWindows()
             return True
             
         # Save images and depth maps from both cameras by pressing 's'
         if key==115:
-            cv.imwrite( str(device) + '_aligned_depth.png', depth_image)
-            cv.imwrite( str(device) + '_aligned_color.png', color_image)
+            cv2.imwrite( str(device) + '_aligned_depth.png', depth_image)
+            cv2.imwrite( str(device) + '_aligned_color.png', color_image)
             print('Save')
         
 
@@ -268,6 +385,7 @@ def main(args):
     resolution_height = rs_cfg.HEIGHT # pixels
     frame_rate = rs_cfg.FRAME_RATE # fps
     publish_freq = (1.0 / args.publish_freq)
+    publish_every_t = publish_freq
 
     pipelines = enable_devices(serials, ctx, resolution_width, resolution_height, frame_rate)
 
@@ -281,6 +399,18 @@ def main(args):
         rs_viz_proc.start()
 
     loop_time = time.time()
+
+    if False:
+        exit = publish_lcm_loop(
+            lc, 
+            rgb_topics_by_serial, 
+            depth_topics_by_serial, 
+            info_topics_by_serial, 
+            pose_topics_by_serial, 
+            pipelines,
+            publish_every_t)
+        assert False
+
     try:
         if args.just_visualize:
             print('Starting to visualize camera data')
@@ -292,9 +422,17 @@ def main(args):
         else:
             print('Starting to publish camera data')
             while True:
-                if (time.time() - loop_time) > publish_freq:
+                delta_t = (time.time() - loop_time)
+                # if delta_t > publish_freq:
+                if True:
+                    start_cmd = time.time()
                     exit = publish_lcm(lc, rgb_topics_by_serial, depth_topics_by_serial, info_topics_by_serial, pose_topics_by_serial, pipelines)
+                    end_cmd = time.time()
+                    # print(f'Delta time: {delta_t}')
+                    # print(f'Command time: {end_cmd - start_cmd}')
                     loop_time = time.time()
+                # time.sleep(0.001)
+                lc.handle_timeout(1)
 
     finally:
         pipeline_stop(pipelines)

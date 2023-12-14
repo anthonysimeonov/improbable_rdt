@@ -4,13 +4,93 @@ import time
 import numpy as np
 import threading
 import copy
+import zlib
+import cv2
 
 from rdt.common import util, path_util, lcm_util
 
 sys.path.append(osp.join(path_util.get_rdt_src(), 'lcm_types'))
 from rdt.lcm_types.rdt_lcm import (
-    point_t, quaternion_t, pose_t, pose_stamped_t, start_goal_pose_stamped_t, 
+    img_t, point_t, quaternion_t, pose_t, pose_stamped_t, start_goal_pose_stamped_t, 
     point_cloud_t, point_cloud_array_t, simple_img_t, simple_depth_img_t, square_matrix_t)
+
+
+
+class RealCompressedCombinedImageLCMSubscriber:
+    def __init__(self, lc, rgb_img_sub_name, depth_img_sub_name):
+        self.lc = lc
+
+        # rgb stuff
+        self.rgb_img_sub_name = rgb_img_sub_name
+        self.rgb_img_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_sub_handler)  # set the queue size here?
+
+        # depth stuff
+        self.depth_img_sub_name = depth_img_sub_name
+        self.depth_img_sub = self.lc.subscribe(self.depth_img_sub_name, self.depth_img_sub_handler)  # set the queue size here?
+
+        self._rgb_msg = None
+        self._depth_msg = None
+        self._rgb_image = None
+        self._depth_image = None
+        self._image_lock = threading.Lock()
+        self._depth_lock = threading.Lock()
+
+    def rgb_img_sub_handler(self, channel, data):
+        msg = img_t.decode(data)
+        with self._image_lock:
+            self._rgb_msg = msg
+
+    def get_rgb_img(self, block=False):
+        rgb_img = None
+        with self._image_lock:
+            if self._rgb_msg is not None:
+                encoded_data_np = np.frombuffer(self._rgb_msg.data, dtype=np.uint8)
+                rgb_img = cv2.imdecode(encoded_data_np, cv2.IMREAD_COLOR)
+        return rgb_img
+
+    def depth_img_sub_handler(self, channel, data):
+        msg = img_t.decode(data)
+        with self._depth_lock:
+            self._depth_msg = msg
+
+    def get_depth_img(self, block=False):
+        depth_img = None
+        with self._depth_lock:
+            if self._depth_msg is not None:
+                decompressed_depth_data = zlib.decompress(self._depth_msg.data)
+                depth_img = np.frombuffer(decompressed_depth_data, dtype=np.uint16).reshape(480, 640)
+        return depth_img
+
+    def get_rgb_and_depth(self, block=False):
+        rgb = self.get_rgb_img()
+        depth = self.get_depth_img()
+        return rgb, depth
+
+
+class RealCompressedColorImageLCMSubscriber:
+    def __init__(self, lc, rgb_img_sub_name, depth_img_sub_name=None):
+        self.lc = lc
+
+        # rgb stuff
+        self.rgb_img_sub_name = rgb_img_sub_name
+        self.rgb_img_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_sub_handler)  # set the queue size here?
+
+        self._rgb_msg = None
+        self._rgb_image = None
+        self._image_lock = threading.Lock()
+
+    def rgb_img_sub_handler(self, channel, data):
+        msg = img_t.decode(data)
+        with self._image_lock:
+            self._rgb_msg = msg
+
+    def get_rgb_img(self, block=False):
+        rgb_img = None
+        with self._image_lock:
+            if self._rgb_msg is not None:
+                encoded_data_np = np.frombuffer(self._rgb_msg.data, dtype=np.uint8)
+                rgb_img = cv2.imdecode(encoded_data_np, cv2.IMREAD_COLOR)
+        return rgb_img
 
 
 class RealImageLCMSubscriber:

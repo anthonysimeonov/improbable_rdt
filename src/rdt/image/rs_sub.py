@@ -7,9 +7,11 @@ import threading
 
 import lcm
 
-from ndf_robot.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
-from ndf_robot.utils.real_util import RealImageLCMSubscriber, RealCamInfoLCMSubscriber
-from ndf_robot.real.multi_realsense_publisher_visualizer import subscriber_visualize
+from rdt.common import path_util, lcm_util
+from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
+from rdt.common.real_util import RealImageLCMSubscriber, RealCamInfoLCMSubscriber, RealCompressedColorImageLCMSubscriber, RealCompressedCombinedImageLCMSubscriber
+from rdt.image.multi_realsense_publisher_visualizer import subscriber_visualize
+
 
 def lc_th(lc):
     while True:
@@ -40,7 +42,8 @@ def main():
 
     img_subscribers = []
     for i, name in enumerate(camera_names):
-        img_sub = RealImageLCMSubscriber(lc, rgb_sub_names[i], depth_sub_names[i])
+        # img_sub = RealImageLCMSubscriber(lc, rgb_sub_names[i], depth_sub_names[i])
+        img_sub = RealCompressedCombinedImageLCMSubscriber(lc, rgb_sub_names[i], depth_sub_names[i])
         info_sub = RealCamInfoLCMSubscriber(lc, pose_sub_names[i], info_sub_names[i])
         img_subscribers.append((name, img_sub, info_sub))
 
@@ -54,6 +57,7 @@ def main():
         if exit == True:
             print('Program closing...')
             break
+        time.sleep(0.001)
 
 if __name__ == "__main__":
     main()

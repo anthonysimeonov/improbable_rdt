@@ -121,6 +121,9 @@ def main(args):
 
     time.sleep(1.0)
 
+    print(f'Here to inspect pipelines')
+    from IPython import embed; embed()
+
     try:
         while True:
             exit = Visualize(pipelines)

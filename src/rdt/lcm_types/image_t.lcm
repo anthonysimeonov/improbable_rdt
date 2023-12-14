@@ -1,0 +1,10 @@
+package rdt_lcm;
+
+//Simple array for sending RGB pixels
+struct img_t {
+    int32_t width;
+    int32_t height;
+    int32_t size;
+    // The data that contains actual image.
+    byte data[size];
+}
