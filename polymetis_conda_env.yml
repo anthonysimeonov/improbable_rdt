@@ -54,6 +54,7 @@ dependencies:
     - pyserial
     - pytest
     - pytest-benchmark=4.0.0
+    - opencv>=4.6, <5.0
     - scipy
     - spdlog=1.10.0=h924138e_0
     - sphinx
@@ -65,7 +66,15 @@ dependencies:
     - pip:
         - meshcat
         - pyrealsense2
+        - yacs
+        # # other useful ones for 3D and 2D image processing
         # - trimesh
         # - open3d
         # - segment-anything
         # - detectron2
+        # # others for spacemouse
+        # - git+https://github.com/cheng-chi/spnav
+        # - termcolor
+        # - atomics
+        # # others for teleop interfacing
+        # - pynput

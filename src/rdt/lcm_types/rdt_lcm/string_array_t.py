@@ -54,7 +54,6 @@ class string_array_t(object):
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if string_array_t in parents: return 0
         tmphash = (0xda5f0859f4e49ed) & 0xffffffffffffffff
@@ -68,4 +67,8 @@ class string_array_t(object):
             string_array_t._packed_fingerprint = struct.pack(">Q", string_array_t._get_hash_recursive([]))
         return string_array_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", string_array_t._get_packed_fingerprint())[0]
 

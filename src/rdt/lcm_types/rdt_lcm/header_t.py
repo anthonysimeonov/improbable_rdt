@@ -52,7 +52,6 @@ class header_t(object):
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if header_t in parents: return 0
         tmphash = (0x9272c333198c72a) & 0xffffffffffffffff
@@ -66,4 +65,8 @@ class header_t(object):
             header_t._packed_fingerprint = struct.pack(">Q", header_t._get_hash_recursive([]))
         return header_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", header_t._get_packed_fingerprint())[0]
 

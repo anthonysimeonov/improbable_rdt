@@ -23,7 +23,7 @@ from rdt.common import mc_util
 
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument('-p', '--port_vis', type=int, default=6000)  # 30
+parser.add_argument('-p', '--port_vis', type=int, default=6000) 
 parser.add_argument('--frequency', type=int, default=10)  # 30
 parser.add_argument('--command_latency', type=float, default=0.01)
 parser.add_argument('--deadzone', type=float, default=0.05)
@@ -77,22 +77,29 @@ def main():
     # robot = RobotInterface(ip_address=franka_ip)
     robot = DiffIKWrapper(ip_address=franka_ip)
     # robot.set_pos_rot_scalars(pos=np.array([1.5]*3))
-    robot.set_pos_rot_scalars(rot=np.array([1.5, 1.5, 4.0]))
+    # robot.set_pos_rot_scalars(rot=np.array([1.5, 1.5, 4.0]))
 
     # Kq_new = torch.Tensor([40., 30., 50., 25., 35., 25., 10.])
     # Kqd_new = torch.Tensor([4., 6., 5., 5., 3., 2., 1.])
     pd_ratio = torch.Tensor([10.,  5., 10.,  5., 11.67, 12.5, 10.])
-    Kq_new = torch.Tensor([320., 240., 350., 200., 200., 260.,  70.])  # pretty good with 30hz, more jerky with 10hz
-    Kq_new = torch.Tensor([350., 250., 350., 210., 220., 260.,  70.])  
-    Kqd_new = Kq_new / pd_ratio
+    Kq_new = torch.Tensor([150., 120., 160., 100., 110., 100.,  40.])
+
+    # Kq_new = torch.Tensor([320., 240., 350., 200., 200., 260.,  70.])  # pretty good with 30hz, more jerky with 10hz
+    # Kq_new = torch.Tensor([350., 250., 350., 210., 220., 260.,  70.])  
+    # Kqd_new = Kq_new / pd_ratio
+
     # Kq_new = torch.Tensor([400.0, 400.0, 400.0, 400.0, 250.0, 150.0, 50.0])
     # Kqd_new = torch.Tensor([50.0, 50.0, 50.0, 50.0, 30.0, 25.0, 15.0])
+
+    Kqd_new = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
 
     # Kx_new = torch.Tensor([750., 750., 750.,  15.,  15.,  15.]) 
     # Kxd_new = torch.Tensor([37., 37., 37.,  2.,  2.,  2.])
 
+    # robot.start_joint_impedance()
     robot.start_joint_impedance(Kq=Kq_new, Kqd=Kqd_new, adaptive=True)
     # robot.start_resolved_rate_control()
+
     gripper = GripperInterface(ip_address=franka_ip)
     simple_gripper = SimpleGripper(gripper)
     init_joint_positions = robot.home_pose.numpy()
@@ -127,6 +134,7 @@ def main():
             iter_idx = 0
             stop = False
 
+            last_grip_step = 0
             while not stop:
                 # calculate timing
                 t_cycle_end = t_start + (iter_idx + 1) * dt
@@ -140,10 +148,13 @@ def main():
                 drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
                 drot = st.Rotation.from_euler("xyz", drot_xyz)
                 
-                if False:
-                    if sm.is_button_pressed(0) or sm.is_button_pressed(1):
-                        gripper.gripper_close() if gripper_open else gripper.gripper_open()
-                        gripper_open = not gripper_open
+                # if False:
+                last_grip_step += 1
+                if sm.is_button_pressed(0) or sm.is_button_pressed(1) and last_grip_step > 10:
+                    # gripper.gripper_close() if gripper_open else gripper.gripper_open()
+                    gripper.goto(0.0, 0.05, 0.1, blocking=False) if gripper_open else gripper.goto(0.08, 0.05, 0.1, blocking=False)
+                    gripper_open = not gripper_open
+                    last_grip_step = 0
 
                 new_target_pose = target_pose.copy()
                 new_target_pose[:3] += dpos

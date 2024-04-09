@@ -9,10 +9,10 @@ except ImportError:
     from io import BytesIO
 import struct
 
-class simple_img_t(object):
-    __slots__ = ["width", "height", "size", "pixels"]
+class img_t(object):
+    __slots__ = ["width", "height", "size", "data"]
 
-    __typenames__ = ["int32_t", "int32_t", "int32_t", "int16_t"]
+    __typenames__ = ["int32_t", "int32_t", "int32_t", "byte"]
 
     __dimensions__ = [None, None, None, ["size"]]
 
@@ -20,50 +20,50 @@ class simple_img_t(object):
         self.width = 0
         self.height = 0
         self.size = 0
-        self.pixels = []
+        self.data = b""
 
     def encode(self):
         buf = BytesIO()
-        buf.write(simple_img_t._get_packed_fingerprint())
+        buf.write(img_t._get_packed_fingerprint())
         self._encode_one(buf)
         return buf.getvalue()
 
     def _encode_one(self, buf):
         buf.write(struct.pack(">iii", self.width, self.height, self.size))
-        buf.write(struct.pack('>%dh' % self.size, *self.pixels[:self.size]))
+        buf.write(bytearray(self.data[:self.size]))
 
     def decode(data):
         if hasattr(data, 'read'):
             buf = data
         else:
             buf = BytesIO(data)
-        if buf.read(8) != simple_img_t._get_packed_fingerprint():
+        if buf.read(8) != img_t._get_packed_fingerprint():
             raise ValueError("Decode error")
-        return simple_img_t._decode_one(buf)
+        return img_t._decode_one(buf)
     decode = staticmethod(decode)
 
     def _decode_one(buf):
-        self = simple_img_t()
+        self = img_t()
         self.width, self.height, self.size = struct.unpack(">iii", buf.read(12))
-        self.pixels = struct.unpack('>%dh' % self.size, buf.read(self.size * 2))
+        self.data = buf.read(self.size)
         return self
     _decode_one = staticmethod(_decode_one)
 
     def _get_hash_recursive(parents):
-        if simple_img_t in parents: return 0
-        tmphash = (0x9c056bdc8cddfeb4) & 0xffffffffffffffff
+        if img_t in parents: return 0
+        tmphash = (0xee100083e2a859c2) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)
     _packed_fingerprint = None
 
     def _get_packed_fingerprint():
-        if simple_img_t._packed_fingerprint is None:
-            simple_img_t._packed_fingerprint = struct.pack(">Q", simple_img_t._get_hash_recursive([]))
-        return simple_img_t._packed_fingerprint
+        if img_t._packed_fingerprint is None:
+            img_t._packed_fingerprint = struct.pack(">Q", img_t._get_hash_recursive([]))
+        return img_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
 
     def get_hash(self):
         """Get the LCM hash of the struct"""
-        return struct.unpack(">Q", simple_img_t._get_packed_fingerprint())[0]
+        return struct.unpack(">Q", img_t._get_packed_fingerprint())[0]
 

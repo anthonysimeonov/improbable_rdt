@@ -49,7 +49,6 @@ class joint_trajectory_with_gripper_t(object):
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if joint_trajectory_with_gripper_t in parents: return 0
         tmphash = (0xffd149f3f1cac356) & 0xffffffffffffffff
@@ -63,4 +62,8 @@ class joint_trajectory_with_gripper_t(object):
             joint_trajectory_with_gripper_t._packed_fingerprint = struct.pack(">Q", joint_trajectory_with_gripper_t._get_hash_recursive([]))
         return joint_trajectory_with_gripper_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", joint_trajectory_with_gripper_t._get_packed_fingerprint())[0]
 

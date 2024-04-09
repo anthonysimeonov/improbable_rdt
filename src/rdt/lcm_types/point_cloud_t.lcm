@@ -10,5 +10,9 @@ struct point_cloud_t {
   int32_t num_points;
 
   // An array of points.
-  point_t points[num_points];
+  // point_t points[num_points];
+
+  // The data
+  int64_t data_size; 
+  byte data[data_size];
 }

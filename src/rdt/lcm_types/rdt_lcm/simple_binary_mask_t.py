@@ -43,11 +43,10 @@ class simple_binary_mask_t(object):
     def _decode_one(buf):
         self = simple_binary_mask_t()
         self.size = struct.unpack(">i", buf.read(4))[0]
-        self.mask = map(bool, struct.unpack('>%db' % self.size, buf.read(self.size)))
+        self.mask = [bool(x) for x in struct.unpack('>%db' % self.size, buf.read(self.size))]
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if simple_binary_mask_t in parents: return 0
         tmphash = (0x829e57a0301a4206) & 0xffffffffffffffff
@@ -61,4 +60,8 @@ class simple_binary_mask_t(object):
             simple_binary_mask_t._packed_fingerprint = struct.pack(">Q", simple_binary_mask_t._get_hash_recursive([]))
         return simple_binary_mask_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", simple_binary_mask_t._get_packed_fingerprint())[0]
 

@@ -6,6 +6,7 @@ DO NOT MODIFY BY HAND!!!!
 from .double_array_t import double_array_t
 from .dual_pose_stamped_t import dual_pose_stamped_t
 from .header_t import header_t
+from .img_t import img_t
 from .joint_trajectory_with_gripper_t import joint_trajectory_with_gripper_t
 from .point_cloud_array_t import point_cloud_array_t
 from .point_cloud_t import point_cloud_t

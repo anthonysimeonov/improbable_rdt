@@ -46,7 +46,6 @@ class point_t(object):
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if point_t in parents: return 0
         tmphash = (0x573f2fdd2f76508f) & 0xffffffffffffffff
@@ -60,4 +59,8 @@ class point_t(object):
             point_t._packed_fingerprint = struct.pack(">Q", point_t._get_hash_recursive([]))
         return point_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", point_t._get_packed_fingerprint())[0]
 

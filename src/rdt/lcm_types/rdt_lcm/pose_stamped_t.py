@@ -53,7 +53,6 @@ class pose_stamped_t(object):
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if pose_stamped_t in parents: return 0
         newparents = parents + [pose_stamped_t]
@@ -68,4 +67,8 @@ class pose_stamped_t(object):
             pose_stamped_t._packed_fingerprint = struct.pack(">Q", pose_stamped_t._get_hash_recursive([]))
         return pose_stamped_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", pose_stamped_t._get_packed_fingerprint())[0]
 

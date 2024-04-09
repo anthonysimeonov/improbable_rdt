@@ -5,6 +5,7 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 import zlib
+import struct
 import multiprocessing
 import argparse
 import threading
@@ -16,7 +17,7 @@ from rdt.common import path_util, lcm_util
 from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
 from rdt.common.real_util import RealImageLCMSubscriber, RealCamInfoLCMSubscriber
 
-from rdt.lcm_types.rdt_lcm import img_t
+from rdt.lcm_types.rdt_lcm import img_t, point_cloud_t, header_t
 
 def subscriber_visualize(subs):
     for (name, img_sub, info_sub) in subs:
@@ -219,11 +220,11 @@ def publish_lcm_loop(lc, rgb_topic_names, depth_topic_names, info_topic_names, p
 
 
 def publish_lcm(lc, rgb_topic_names, depth_topic_names, info_topic_names, pose_topic_names,
-            pipelines, publish_camera_info=True):
+            pipelines, publish_camera_info=True, rgbd_multicam_interface=None, publish_pointcloud=False, pointcloud_topic_names=None):
     align_to = rs.stream.color
     align = rs.align(align_to)
 
-    for (device,pipe) in pipelines:
+    for i, (device,pipe) in enumerate(pipelines):
         try:
             # Get frameset of color and depth
             frames = pipe.wait_for_frames(100)
@@ -276,27 +277,63 @@ def publish_lcm(lc, rgb_topic_names, depth_topic_names, info_topic_names, pose_t
         lc.publish(rgb_topic_names[device], rgb_msg.encode())
         lc.publish(depth_topic_names[device], depth_msg.encode())
 
+        # Intrinsics & Extrinsics
+        depth_intrin = aligned_depth_frame.profile.as_video_stream_profile().intrinsics
+        color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
+        depth_to_color_extrin = aligned_depth_frame.profile.get_extrinsics_to(color_frame.profile)
+
+        # Depth scale - units of the values inside a depth frame, i.e how to convert the value to units of 1 meter
+        depth_sensor = pipe.get_active_profile().get_device().first_depth_sensor()
+        depth_scale = depth_sensor.get_depth_scale()
+
+        intrinsics_matrix = np.array(
+            [[depth_intrin.fx, 0., depth_intrin.ppx],
+            [0., depth_intrin.fy, depth_intrin.ppy],
+            [0., 0., 1.]]
+        )
+
         if False:        
             # let's also get out the intrinsics/camera info, if we want to send that out as well
             if publish_camera_info:
-                # Intrinsics & Extrinsics
-                depth_intrin = aligned_depth_frame.profile.as_video_stream_profile().intrinsics
-                color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
-                depth_to_color_extrin = aligned_depth_frame.profile.get_extrinsics_to(color_frame.profile)
+                cam_int_msg = lcm_util.pack_square_matrix(intrinsics_matrix)
+                lc.publish(info_topic_names[device], cam_int_msg.encode())
+        if publish_pointcloud:
 
-                # Depth scale - units of the values inside a depth frame, i.e how to convert the value to units of 1 meter
-                depth_sensor = pipe.get_active_profile().get_device().first_depth_sensor()
-                depth_scale = depth_sensor.get_depth_scale()
+            # process depth into our units
+            cam = rgbd_multicam_interface.cams[i]
+            cam.cam_int_mat = intrinsics_matrix
+            cam._init_pers_mat()
 
-                intrinsics_matrix = np.array(
-                    [[depth_intrin.fx, 0., depth_intrin.ppx],
-                    [0., depth_intrin.fy, depth_intrin.ppy],
-                    [0., 0., 1.]]
-                )
+            depth = depth_image * 0.001
+            valid = depth < cam.depth_max
+            valid = np.logical_and(valid, depth > cam.depth_min)
+            depth[np.logical_not(valid)] = 0.0 # not exactly sure what to put for invalid depth
 
-            cam_int_msg = lcm_util.pack_square_matrix(intrinsics_matrix)
-            lc.publish(info_topic_names[device], cam_int_msg.encode())
+            # get point cloud from depth image
+            point_cloud_world_frame = cam.get_pcd(
+                in_world=True,  # False
+                filter_depth=False, 
+                rgb_image=color_image, 
+                depth_image=depth)[0].astype(np.float32)
+            
+            # pack and send point cloud message
+            pcd_msg = point_cloud_t()
+            # point_format = 'fff'
+            # point_struct = struct.Struct(point_format)
+            # point_data_bytes = bytearray()
+            # for point in point_cloud_cam_frame:
+            #     packed_point = point_struct.pack(point[0], point[1], point[2])
+            #     point_data_bytes.extend(packed_point)
+            point_data_bytes = point_cloud_world_frame.tobytes()
+            pcd_msg.data = point_data_bytes
+            pcd_msg.data_size = len(point_data_bytes)
+            pcd_msg.num_points = point_cloud_world_frame.shape[0]
+            pcd_msg.header = header_t()
+            pcd_msg.header.frame_name = f'cam_{i}'
+            pcd_msg.header.seq = 0
+            pcd_msg.header.utime = round(time.time() * 1000)
 
+            lc.publish(pointcloud_topic_names[device], pcd_msg.encode())
 
 def Visualize(pipelines):
     align_to = rs.stream.color
@@ -375,6 +412,7 @@ def main(args):
     camera_depth_topics = [f'{cam_name}_{depth_pub_name_suffix}' for cam_name in camera_names]
     camera_info_topics = [f'{cam_name}_{info_pub_name_suffix}' for cam_name in camera_names]
     camera_pose_topics = [f'{cam_name}_{pose_pub_name_suffix}' for cam_name in camera_names]
+    camera_pointcloud_topics = [f'{cam_name}_point_cloud' for cam_name in camera_names]
 
     rgb_topics_by_serial = {serials[i] : camera_rgb_topics[i] for i in range(len(serials))}
     depth_topics_by_serial = {serials[i] : camera_depth_topics[i] for i in range(len(serials))}
@@ -387,10 +425,18 @@ def main(args):
     publish_freq = (1.0 / args.publish_freq)
     publish_every_t = publish_freq
 
-    print(f'Enabling devices with serial numbers: {serials}')
     pipelines = enable_devices(serials, ctx, resolution_width, resolution_height, frame_rate)
 
     time.sleep(1.0)
+
+    calib_dir = osp.join(path_util.get_rdt_src(), 'robot/camera_calibration_files')
+    calib_filenames = [osp.join(calib_dir, f'cam_{idx}_calib_base_to_cam.json') for idx in range(len(serials))]
+    from rdt.camera.simple_multicam import MultiRGBDCalibrated
+    rgbd_multicam_interface = MultiRGBDCalibrated(
+        cam_names=camera_names,
+        calib_filenames=calib_filenames, # None
+    )
+    pointcloud_topics_by_serial = {serials[i] : camera_pointcloud_topics[i] for i in range(len(serials))}
 
     if args.visualize:
         # create visualization process
@@ -424,15 +470,26 @@ def main(args):
             print('Starting to publish camera data')
             while True:
                 delta_t = (time.time() - loop_time)
-                if delta_t > publish_freq:
-                # if True:
+                # if delta_t > publish_freq:
+                if True:
                     start_cmd = time.time()
-                    exit = publish_lcm(lc, rgb_topics_by_serial, depth_topics_by_serial, info_topics_by_serial, pose_topics_by_serial, pipelines)
+                    exit = publish_lcm(
+                        lc, 
+                        rgb_topics_by_serial, 
+                        depth_topics_by_serial, 
+                        info_topics_by_serial, 
+                        pose_topics_by_serial, 
+                        pipelines,
+                        publish_camera_info=args.info_pub,
+                        rgbd_multicam_interface=rgbd_multicam_interface,
+                        publish_pointcloud=args.pcd_pub,
+                        pointcloud_topic_names=pointcloud_topics_by_serial)
                     end_cmd = time.time()
                     # print(f'Delta time: {delta_t}')
                     # print(f'Command time: {end_cmd - start_cmd}')
                     loop_time = time.time()
                 time.sleep(0.001)
+                # lc.handle_timeout(1)
 
     finally:
         pipeline_stop(pipelines)
@@ -444,5 +501,7 @@ if __name__ == "__main__":
     parser.add_argument('--visualize', action='store_true', help='If True, create windows to view the streams from each camera')
     parser.add_argument('--just_visualize', action='store_true', help='If True, don"t publish, only visualize the raw streams')
     parser.add_argument('--rs_config', type=str, default=None, help='Can provide a .yaml file located in the src/rrp_robot/config/real_cam_cfgs directory')
+    parser.add_argument('--info_pub', action='store_true', help='If set, publish camera info (intrinsics)')
+    parser.add_argument('--pcd_pub', action='store_true', help='If set, publish 3D point cloud')
     args = parser.parse_args()
     main(args)

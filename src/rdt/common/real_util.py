@@ -11,7 +11,7 @@ from rdt.common import util, path_util, lcm_util
 
 sys.path.append(osp.join(path_util.get_rdt_src(), 'lcm_types'))
 from rdt.lcm_types.rdt_lcm import (
-    img_t, point_t, quaternion_t, pose_t, pose_stamped_t, start_goal_pose_stamped_t, 
+    img_t, point_cloud_t, point_t, quaternion_t, pose_t, pose_stamped_t, start_goal_pose_stamped_t, 
     point_cloud_t, point_cloud_array_t, simple_img_t, simple_depth_img_t, square_matrix_t)
 
 
@@ -65,6 +65,32 @@ class RealCompressedCombinedImageLCMSubscriber:
         rgb = self.get_rgb_img()
         depth = self.get_depth_img()
         return rgb, depth
+
+
+class RealCompressedPCDLCMSubscriber:
+    def __init__(self, lc, pcd_sub_name):
+        self.lc = lc
+
+        self.pcd_sub_name = pcd_sub_name
+        self.pcd_sub = self.lc.subscribe(self.pcd_sub_name, self.pcd_sub_handler)  # set the queue size here?
+
+        self._pcd_msg = None
+        self._pcd = None
+        self._pcd_lock = threading.Lock()
+
+    def pcd_sub_handler(self, channel, data):
+        msg = point_cloud_t.decode(data)
+        with self._pcd_lock:
+            self._pcd_msg = msg
+
+    def get_pcd(self, block=False):
+        pcd = None
+        with self._pcd_lock:
+            if self._pcd_msg is not None:
+                # num_points = len(self._pcd_msg.data) // 12  # 12 bytes per point (3 floats)
+                num_points = self._pcd_msg.num_points
+                pcd = np.frombuffer(self._pcd_msg.data, dtype=np.float32).reshape(num_points, 3)
+        return pcd
 
 
 class RealCompressedColorImageLCMSubscriber:

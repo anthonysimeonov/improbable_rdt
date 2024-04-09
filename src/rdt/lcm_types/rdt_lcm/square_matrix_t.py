@@ -48,7 +48,6 @@ class square_matrix_t(object):
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if square_matrix_t in parents: return 0
         tmphash = (0x4e7ff6e9116fd940) & 0xffffffffffffffff
@@ -62,4 +61,8 @@ class square_matrix_t(object):
             square_matrix_t._packed_fingerprint = struct.pack(">Q", square_matrix_t._get_hash_recursive([]))
         return square_matrix_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", square_matrix_t._get_packed_fingerprint())[0]
 

@@ -53,7 +53,6 @@ class point_cloud_array_t(object):
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if point_cloud_array_t in parents: return 0
         newparents = parents + [point_cloud_array_t]
@@ -68,4 +67,8 @@ class point_cloud_array_t(object):
             point_cloud_array_t._packed_fingerprint = struct.pack(">Q", point_cloud_array_t._get_hash_recursive([]))
         return point_cloud_array_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", point_cloud_array_t._get_packed_fingerprint())[0]
 

@@ -1,10 +1,15 @@
 import os, os.path as osp
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('TkAgg')
 
-from segment_anything import sam_model_registry, SamPredictor
+try:
+    from segment_anything import sam_model_registry, SamPredictor
+except ImportError as e:
+    warnings.warn(f'Could not import from "segment_anything" package, segmentation utils will be unavailable\n\n{e}', ImportWarning)
+
 from rdt.common import path_util
 
 class SAMSeg:

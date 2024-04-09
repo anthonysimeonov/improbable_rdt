@@ -44,3 +44,14 @@ termcolor
 atomics
 scipy
 ```
+
+Build the lcm types
+```
+cd src/rdt/lcmtypes
+lcm-gen -p *.lcm 
+```
+
+Installs for teleop data collection
+```
+pynput
+```

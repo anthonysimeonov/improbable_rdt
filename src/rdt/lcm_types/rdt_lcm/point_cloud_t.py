@@ -11,19 +11,18 @@ import struct
 
 import rdt_lcm.header_t
 
-import rdt_lcm.point_t
-
 class point_cloud_t(object):
-    __slots__ = ["header", "num_points", "points"]
+    __slots__ = ["header", "num_points", "data_size", "data"]
 
-    __typenames__ = ["rdt_lcm.header_t", "int32_t", "rdt_lcm.point_t"]
+    __typenames__ = ["rdt_lcm.header_t", "int32_t", "int64_t", "byte"]
 
-    __dimensions__ = [None, None, ["num_points"]]
+    __dimensions__ = [None, None, None, ["data_size"]]
 
     def __init__(self):
         self.header = rdt_lcm.header_t()
         self.num_points = 0
-        self.points = []
+        self.data_size = 0
+        self.data = b""
 
     def encode(self):
         buf = BytesIO()
@@ -34,10 +33,8 @@ class point_cloud_t(object):
     def _encode_one(self, buf):
         assert self.header._get_packed_fingerprint() == rdt_lcm.header_t._get_packed_fingerprint()
         self.header._encode_one(buf)
-        buf.write(struct.pack(">i", self.num_points))
-        for i0 in range(self.num_points):
-            assert self.points[i0]._get_packed_fingerprint() == rdt_lcm.point_t._get_packed_fingerprint()
-            self.points[i0]._encode_one(buf)
+        buf.write(struct.pack(">iq", self.num_points, self.data_size))
+        buf.write(bytearray(self.data[:self.data_size]))
 
     def decode(data):
         if hasattr(data, 'read'):
@@ -52,18 +49,15 @@ class point_cloud_t(object):
     def _decode_one(buf):
         self = point_cloud_t()
         self.header = rdt_lcm.header_t._decode_one(buf)
-        self.num_points = struct.unpack(">i", buf.read(4))[0]
-        self.points = []
-        for i0 in range(self.num_points):
-            self.points.append(rdt_lcm.point_t._decode_one(buf))
+        self.num_points, self.data_size = struct.unpack(">iq", buf.read(12))
+        self.data = buf.read(self.data_size)
         return self
     _decode_one = staticmethod(_decode_one)
 
-    _hash = None
     def _get_hash_recursive(parents):
         if point_cloud_t in parents: return 0
         newparents = parents + [point_cloud_t]
-        tmphash = (0xef9b8c517c4acf37+ rdt_lcm.header_t._get_hash_recursive(newparents)+ rdt_lcm.point_t._get_hash_recursive(newparents)) & 0xffffffffffffffff
+        tmphash = (0x916a6679ddd821ad+ rdt_lcm.header_t._get_hash_recursive(newparents)) & 0xffffffffffffffff
         tmphash  = (((tmphash<<1)&0xffffffffffffffff) + (tmphash>>63)) & 0xffffffffffffffff
         return tmphash
     _get_hash_recursive = staticmethod(_get_hash_recursive)
@@ -74,4 +68,8 @@ class point_cloud_t(object):
             point_cloud_t._packed_fingerprint = struct.pack(">Q", point_cloud_t._get_hash_recursive([]))
         return point_cloud_t._packed_fingerprint
     _get_packed_fingerprint = staticmethod(_get_packed_fingerprint)
+
+    def get_hash(self):
+        """Get the LCM hash of the struct"""
+        return struct.unpack(">Q", point_cloud_t._get_packed_fingerprint())[0]
 
