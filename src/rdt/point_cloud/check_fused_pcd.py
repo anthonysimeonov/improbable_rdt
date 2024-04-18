@@ -66,7 +66,7 @@ def main(args):
 
     prefix = rs_cfg.CAMERA_NAME_PREFIX
     camera_names = [f'{prefix}{i}' for i in range(len(serials))]
-    cam_idx = [1,2]
+    cam_idx = args.cam_index
     cam_list = [camera_names[int(idx)] for idx in cam_idx]
     serial_list = [serials[int(idx)] for idx in cam_idx]
     #cam_list = [camera_names[int(idx)] for idx in args.cam_index]

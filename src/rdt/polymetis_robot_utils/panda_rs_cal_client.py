@@ -61,7 +61,8 @@ cam012_home_joints = {
 # cam0_workspace_limits = np.asarray([[400, 425], [-100, 100], [225, 250]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
 
 cam0_workspace_limits = np.asarray([[375, 500], [-390, -300], [250, 300]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
-cam1_workspace_limits = np.asarray([[400, 550], [-250, 0], [300, 450]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
+# cam1_workspace_limits = np.asarray([[400, 550], [-100, 100], [350, 500]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS LEFT
+cam1_workspace_limits = np.asarray([[400, 550], [-100, 100], [350, 500]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS RIGHT
 cam2_workspace_limits = np.asarray([[400, 550], [-250, 250], [250, 350]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
 cam3_workspace_limits = np.asarray([[400, 550], [-250, -250], [450, 550]]) # Cols: min max, Rows: x y z (define workspace limits in robot coordinates) # SET THIS
 
@@ -304,7 +305,15 @@ def main(args):
                         print(f'Could not move home for some reason...')
                         from IPython import embed; embed()
                         return
-                    robot.start_cartesian_impedance(Kx=torch.zeros(6), Kxd=torch.zeros(6))
+
+                    # robot.move_to_joint_positions(torch.tensor([-0.1298,  0.0255,  0.0184, -2.0400,  0.2202,  1.5834,  1.9920])) # 
+                    # if 2 in args.cam_index:
+                    robot.move_to_joint_positions(torch.tensor([ 0.0248, -0.0523, -0.2186, -2.3896, -0.1546,  2.8296, -1.1888])) # cam index 2
+                    # else:
+                    #     robot.move_to_joint_positions(torch.tensor([-0.1870, -0.2256, -0.1106, -2.2229, -0.4662,  1.8277,  0.7807])) # cam index 1
+
+                    # robot.start_joint_impedance(Kx=torch.zeros(7), Kxd=torch.zeros(7), adaptive=False)
+                    # robot.start_cartesian_impedance(Kx=torch.zeros(6), Kxd=torch.zeros(6))
                     # robot.start_joint_impedance(Kx=torch.zeros(6), Kxd=torch.zeros(6))
                     # robot.start_cartesian_impedance(Kx=None, Kxd=None)
                     time.sleep(2.0)
@@ -314,13 +323,13 @@ def main(args):
                 robot.start_joint_impedance(Kq=Kq_new, Kqd=Kqd_new)
 
                 # move_time = 0.5
-                move_time = 1.0
+                move_time = 2.0
 
                 # Move robot to each calibration point in workspace
                 log_info('Collecting data...')
                 current_pose = copy.deepcopy(robot.get_ee_pose())
-                nominal_ori_rot = torch.tensor( euler2quat(-0.207,0.013, -0.06))
-
+                # nominal_ori_rot = torch.tensor( euler2quat(-0.207,0.013, -0.06))
+                nominal_ori_rot = current_pose[1]
                 current_pose = (current_pose[0],nominal_ori_rot)
                 nominal_ori_mat = poly_util.polypose2mat(current_pose)[:-1, :-1]
                 for calib_pt_idx in range(num_calib_grid_pts):
@@ -341,7 +350,7 @@ def main(args):
 
                     current_pose = robot.get_ee_pose()
                     current_pose_mat = poly_util.polypose2mat(current_pose)
-                    to_new_pose_mats = planning.interpolate_pose(current_pose_mat, new_pose_mat, 25)
+                    to_new_pose_mats = planning.interpolate_pose(current_pose_mat, new_pose_mat, 50)
                     for i in range(len(to_new_pose_mats)):
                         if i % 50 == 0:
                             util.meshcat_frame_show(mc_vis, f'scene/poses/to_next/{i}', to_new_pose_mats[i])
