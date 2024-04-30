@@ -1,5 +1,3 @@
-# to run this, must also run pip install params-proto
-
 import os, os.path as osp
 from pathlib import Path
 import sys
@@ -306,8 +304,11 @@ def main():
                 action[-1] = grasp_flag
                 episode_dict["robot_state"].append(robot_state_dict)
                 episode_dict["actions"].append(action)
-                episode_dict["image_wrist"].append(rgbd_list[0]["rgb"])
-                episode_dict["image_front"].append(rgbd_list[1]["rgb"])
+
+                # TODO - ensure we are taking care of the right order of cameras here... 
+                img_keys = ["image_wrist", "image_front"]
+                for img_key, img in zip(img_keys, rgbd_list):
+                    episode_dict[img_key].append(img) 
 
                 # target_pose = new_target_pose
                 target_pose = polypose2target(robot.get_ee_pose())
