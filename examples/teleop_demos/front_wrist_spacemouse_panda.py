@@ -1,6 +1,7 @@
 import os, os.path as osp
 from pathlib import Path
 import sys
+import copy
 import pickle
 import time
 import threading
@@ -23,6 +24,11 @@ from rdt.common import mc_util
 from rdt.common.keyboard_interface import KeyboardInterface
 from rdt.common.demo_util import CollectEnum
 from datetime import datetime
+
+from rdt.image.factory import get_realsense_rgbd_subscribers
+import lcm
+from rdt.image.factory import enable_realsense_devices
+import pyrealsense2 as rs
 
 
 import argparse
@@ -66,7 +72,7 @@ def main():
     # robot.set_pos_rot_scalars(rot=np.array([1.5, 1.5, 4.0]))
 
     sm_dpos_scalar = np.array([1.5] * 3)
-    sm_drot_scalar = np.array([1.5] * 3)
+    sm_drot_scalar = np.array([2.25] * 3)
     # sm_drot_scalar = np.array([1.5, 1.5, 4.0])
 
     # Kq_new = torch.Tensor([40., 30., 50., 25., 35., 25., 10.])
@@ -121,12 +127,10 @@ def main():
 
     # Setup camera streams (via either LCM or pyrealsense)
 
+    rs_cfg = get_default_multi_realsense_cfg()
     if args.use_lcm:
-        from rdt.image.factory import get_realsense_rgbd_subscribers
-        import lcm
 
         lc = lcm.LCM("udpm://239.255.76.67:7667?ttl=1")
-        rs_cfg = get_default_multi_realsense_cfg()
         img_subscribers = get_realsense_rgbd_subscribers(lc, rs_cfg)
 
         def lc_th(lc):
@@ -151,10 +155,6 @@ def main():
             return rgbd_list
 
     else:
-        from rdt.image.factory import enable_realsense_devices
-        import pyrealsense2 as rs
-
-        rs_cfg = get_default_multi_realsense_cfg()
         resolution_width = rs_cfg.WIDTH  # pixels
         resolution_height = rs_cfg.HEIGHT  # pixels
         frame_rate = rs_cfg.FRAME_RATE  # fps
@@ -167,17 +167,19 @@ def main():
             serials, ctx, resolution_width, resolution_height, frame_rate
         )
 
-        def get_rgbd_rs(pipelines):
+        def get_rgbd_rs(image_pipelines):
             rgbd_list = []
 
             align_to = rs.stream.color
             align = rs.align(align_to)
 
-            for device, pipe in pipelines:
+            for device, pipe in image_pipelines:
                 try:
                     # Get frameset of color and depth
-                    frames = pipe.wait_for_frames(2000)  # 100
+                    frames = pipe.wait_for_frames(100)  # 100
+                    # frames = pipe.wait_for_frames(100)
                 except RuntimeError as e:
+                    print(f"Runtime error: {e}")
                     print(f"Couldn't get frame for device: {device}")
                     # continue
                     raise
@@ -196,7 +198,8 @@ def main():
                 depth_image = np.asanyarray(aligned_depth_frame.get_data())
                 color_image = np.asanyarray(color_frame.get_data())
 
-                img_dict = dict(rgb=color_image, depth=depth_image)
+                # the .copy() here is super important!
+                img_dict = dict(rgb=color_image.copy(), depth=depth_image.copy())
                 rgbd_list.append(img_dict)
 
             return rgbd_list
@@ -223,6 +226,9 @@ def main():
             stop = False
 
             last_grip_step = 0
+            steps_since_grasp = 0
+            record_latency_when_grasping = 15
+            print(f"Start collecting!")
             while not stop:
                 # calculate timing
                 t_cycle_end = t_start + (iter_idx + 1) * dt
@@ -232,13 +238,12 @@ def main():
 
                 # get teleop command
                 sm_state = sm.get_motion_state_transformed()
-                dpos = sm_state[:3] * (args.max_pos_speed / frequency)
-                # drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
-                # drot = st.Rotation.from_euler("xyz", drot_xyz)
 
-                drot_xyz = (
-                    sm_state[3:] * (args.max_rot_speed / frequency) * sm_dpos_scalar
-                )
+                # scale pos command
+                dpos = sm_state[:3] * (args.max_pos_speed / frequency) * sm_dpos_scalar
+
+                # convert and scale rot command
+                drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
                 drot_rotvec = st.Rotation.from_euler("xyz", drot_xyz).as_rotvec()
                 drot_rotvec *= sm_drot_scalar
                 drot = st.Rotation.from_rotvec(drot_rotvec)
@@ -247,17 +252,28 @@ def main():
                 if collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
                     break
 
+                if np.allclose(dpos, 0.0) and np.allclose(drot_xyz, 0.0):
+                    action_taken = False
+                else:
+                    action_taken = True
+
+                steps_since_grasp += 1
+                if steps_since_grasp < record_latency_when_grasping:
+                    action_taken = True
+
                 # get observations
                 rgbd_list = (
                     get_rgbd_lcm(img_subscribers)
                     if args.use_lcm
                     else get_rgbd_rs(pipelines)
                 )
+
                 current_ee_pose = torch.cat(robot.get_ee_pose(), dim=-1)
                 current_joint_positions = robot.get_joint_positions()
                 robot_state_dict = dict(
                     ee_pose=current_ee_pose.numpy(),
                     joint_positions=current_joint_positions.numpy(),
+                    gripper_width=gripper.get_state().width,
                 )
 
                 # if False:
@@ -276,9 +292,11 @@ def main():
                     gripper_open = not gripper_open
                     last_grip_step = 0
                     grasp_flag = -1 * grasp_flag
+                    steps_since_grasp = 0
 
                 if not (np.allclose(keyboard_action[3:6], 0.0)):
                     drot = st.Rotation.from_quat(keyboard_action[3:7])
+                    action_taken = True
 
                 new_target_pose = target_pose.copy()
                 new_target_pose[:3] += dpos
@@ -295,28 +313,38 @@ def main():
                     new_target_pose_mat, dt=dt
                 )  # , scalar=0.5)
 
-                # log the data
-                action = np.zeros(8)
-                action[:3] = new_target_pose_mat[:-1, -1]
-                action[3:7] = st.Rotation.from_matrix(
-                    new_target_pose_mat[:-1, :-1]
-                ).as_quat()
-                action[-1] = grasp_flag
-                episode_dict["robot_state"].append(robot_state_dict)
-                episode_dict["actions"].append(action)
+                if action_taken:
+                    # log the data
+                    action = np.zeros(8)
+                    action[:3] = new_target_pose_mat[:-1, -1]
+                    action[3:7] = st.Rotation.from_matrix(
+                        new_target_pose_mat[:-1, :-1]
+                    ).as_quat()
+                    action[-1] = grasp_flag
+                    episode_dict["robot_state"].append(robot_state_dict)
+                    episode_dict["actions"].append(action)
 
-                # TODO - ensure we are taking care of the right order of cameras here... 
-                img_keys = ["image_wrist", "image_front"]
-                for img_key, img in zip(img_keys, rgbd_list):
-                    episode_dict[img_key].append(img) 
+                    # # TODO - ensure we are taking care of the right order of cameras here...
+                    img_keys = ["image_wrist", "image_front"]
+                    for img_key, img in zip(img_keys, rgbd_list):
+                        episode_dict[img_key].append(img)
+
+                    action_target_pose = np.eye(4)
+                    action_target_pose[:-1, :-1] = st.Rotation.from_quat(
+                        action[3:7]
+                    ).as_matrix()
+                    action_target_pose[:-1, -1] = action[:3]
+                    mc_util.meshcat_frame_show(
+                        mc_vis, f"scene/target_pose", action_target_pose
+                    )
 
                 # target_pose = new_target_pose
                 target_pose = polypose2target(robot.get_ee_pose())
 
                 # Draw the current target pose (in meshcat)
-                mc_util.meshcat_frame_show(
-                    mc_vis, f"scene/target_pose", new_target_pose_mat
-                )
+                # mc_util.meshcat_frame_show(
+                #     mc_vis, f"scene/target_pose", new_target_pose_mat
+                # )
                 mc_util.meshcat_frame_show(
                     mc_vis,
                     f"scene/current_pose",
