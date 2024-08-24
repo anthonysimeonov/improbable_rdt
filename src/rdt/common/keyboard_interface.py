@@ -31,7 +31,8 @@ class KeyboardInterface:
     # INIT_POS_DELTA = 0.02
     INIT_POS_DELTA = 0.01
     # INIT_ROT_DELTA = 0.13  # Radian.
-    INIT_ROT_DELTA = 0.06  # Radian.
+    # INIT_ROT_DELTA = 0.06  # Radian.
+    INIT_ROT_DELTA = 0.13
 
     MAX_POS_DELTA = 0.1
     # MAX_ROT_DELTA = 0.2  # Radian.
@@ -74,6 +75,8 @@ class KeyboardInterface:
                 self._adjust_delta(k)
             elif k == "t":
                 self.key_enum = CollectEnum.SUCCESS
+            # elif k == "r":
+            #     self.key_enum = CollectEnum.RECORD
             elif k == "n":
                 self.key_enum = CollectEnum.FAIL
             elif k.isdigit():
@@ -86,6 +89,8 @@ class KeyboardInterface:
             elif k == "r":
                 print("Reset pressed")
                 self.key_enum = CollectEnum.RESET
+            elif k == "p":
+                self.key_enum = CollectEnum.PAUSE_HOLD
         except AttributeError as e:
             pass
 

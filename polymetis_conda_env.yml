@@ -54,7 +54,7 @@ dependencies:
     - pyserial
     - pytest
     - pytest-benchmark=4.0.0
-    - opencv>=4.6, <5.0
+    # - opencv>=4.6, <5.0
     - scipy
     - spdlog=1.10.0=h924138e_0
     - sphinx

@@ -8,6 +8,7 @@ import torchcontrol as toco
 
 from polymetis import GripperInterface, RobotInterface
 from rdt.polymetis_robot_utils.polymetis_util import PolymetisHelper
+
 poly_util = PolymetisHelper()
 
 
@@ -15,7 +16,12 @@ poly_util = PolymetisHelper()
 class ResolvedRateControl(toco.PolicyModule):
     """Resolved Rates Control --> End-Effector Control (dx, dy, dz, droll, dpitch, dyaw) via Joint Velocity Control"""
 
-    def __init__(self, Kp: torch.Tensor, robot_model: torch.nn.Module, ignore_gravity: bool = True) -> None:
+    def __init__(
+        self,
+        Kp: torch.Tensor,
+        robot_model: torch.nn.Module,
+        ignore_gravity: bool = True,
+    ) -> None:
         """
         Initializes a Resolved Rates controller with the given P gains and robot model.
 
@@ -27,7 +33,9 @@ class ResolvedRateControl(toco.PolicyModule):
 
         # Initialize Modules --> Inverse Dynamics is necessary as it needs to be compensated for in output torques...
         self.robot_model = robot_model
-        self.invdyn = toco.modules.feedforward.InverseDynamics(self.robot_model, ignore_gravity=ignore_gravity)
+        self.invdyn = toco.modules.feedforward.InverseDynamics(
+            self.robot_model, ignore_gravity=ignore_gravity
+        )
 
         # Create LinearFeedback (P) Controller...
         self.p = toco.modules.feedback.LinearFeedback(Kp)
@@ -43,17 +51,24 @@ class ResolvedRateControl(toco.PolicyModule):
         :return Dictionary containing joint torques.
         """
         # State Extraction
-        joint_pos_current, joint_vel_current = state_dict["joint_positions"], state_dict["joint_velocities"]
+        joint_pos_current, joint_vel_current = (
+            state_dict["joint_positions"],
+            state_dict["joint_velocities"],
+        )
 
         # Compute Target Joint Velocity via Resolved Rate Control...
         #   =>> Resolved Rate: joint_vel_desired = J.pinv() @ ee_vel_desired
         #                      >> Numerically stable --> torch.linalg.lstsq(J, ee_vel_desired).solution
         jacobian = self.robot_model.compute_jacobian(joint_pos_current)
-        joint_vel_desired = torch.linalg.lstsq(jacobian, self.ee_velocity_desired).solution
+        joint_vel_desired = torch.linalg.lstsq(
+            jacobian, self.ee_velocity_desired
+        ).solution
 
         # Control Logic --> Compute P Torque (feedback) & Inverse Dynamics Torque (feedforward)
         torque_feedback = self.p(joint_vel_current, joint_vel_desired)
-        torque_feedforward = self.invdyn(joint_pos_current, joint_vel_current, torch.zeros_like(joint_pos_current))
+        torque_feedforward = self.invdyn(
+            joint_pos_current, joint_vel_current, torch.zeros_like(joint_pos_current)
+        )
         torque_out = torque_feedback + torque_feedforward
 
         return {"joint_torques": torque_out}
@@ -62,6 +77,8 @@ class ResolvedRateControl(toco.PolicyModule):
 """
 wrapper that addds the resolved rate controller + changes quaternion order to xyzw
 """
+
+
 class DiffIKWrapper(RobotInterface):
 
     def __init__(
@@ -69,13 +86,17 @@ class DiffIKWrapper(RobotInterface):
         time_to_go_default: float = 1.0,
         use_grav_comp: bool = True,
         *args,
-        **kwargs):
+        **kwargs
+    ):
 
         super().__init__(*args, **kwargs)
         # self.pos_scalar = 1.0
         # self.rot_scalar = 2.0
         self.pos_scalar = np.array([1.0] * 3)  # x, y, z
         self.rot_scalar = np.array([1.0] * 3)  # r, p, y
+
+        # self.pos_scalar = np.array([0.5] * 3)  # x, y, z
+        # self.rot_scalar = np.array([0.5] * 3)  # r, p, y
 
     def set_pos_rot_scalars(self, pos=None, rot=None):
         if pos is not None:
@@ -94,7 +115,9 @@ class DiffIKWrapper(RobotInterface):
         pos, quat = super().get_ee_pose()
         return pos, torch.roll(quat, -1)
 
-    def start_resolved_rate_control(self, Kq: Optional[List[float]] = None) -> List[Any]:
+    def start_resolved_rate_control(
+        self, Kq: Optional[List[float]] = None
+    ) -> List[Any]:
         """
         Start Resolved-Rate Control (P control on Joint Velocity), as a non-blocking controller.
 
@@ -114,7 +137,9 @@ class DiffIKWrapper(RobotInterface):
         Requires starting a resolved-rate controller via `start_resolved_rate_control` beforehand.
         """
         try:
-            update_idx = self.update_current_policy({"ee_velocity_desired": ee_velocities})
+            update_idx = self.update_current_policy(
+                {"ee_velocity_desired": ee_velocities}
+            )
         except grpc.RpcError as e:
             print(
                 "Unable to update desired end-effector velocities. Use `start_resolved_rate_control` to start a "
@@ -131,7 +156,9 @@ class DiffIKWrapper(RobotInterface):
         ee_dpos = ee_dpos * self.pos_scalar
 
         # rotation
-        ee_rot_mat_error = desired_ee_pose_mat[:-1, :-1] @ np.linalg.inv(current_ee_pose_mat[:-1, :-1])
+        ee_rot_mat_error = desired_ee_pose_mat[:-1, :-1] @ np.linalg.inv(
+            current_ee_pose_mat[:-1, :-1]
+        )
         ee_drot = (R.from_matrix(ee_rot_mat_error).as_rotvec()) / dt_rot
         ee_drot = ee_drot * self.rot_scalar
 
@@ -142,10 +169,12 @@ class DiffIKWrapper(RobotInterface):
     def update_desired_ee_pose(self, ee_pose_mat, dt=0.1, scalar=1.0):
         joint_pos_current = self.get_joint_positions()
         jacobian = self.robot_model.compute_jacobian(joint_pos_current)
-        ee_velocity_desired = self.compute_ee_vel_desired(ee_pose_mat, dt_pos=dt, dt_rot=dt)
+        ee_velocity_desired = self.compute_ee_vel_desired(
+            ee_pose_mat, dt_pos=dt, dt_rot=dt
+        )
 
         joint_vel_desired = torch.linalg.lstsq(jacobian, ee_velocity_desired).solution
-        joint_pos_desired = joint_pos_current + joint_vel_desired*dt*scalar
-        
+        joint_pos_desired = joint_pos_current + joint_vel_desired * dt * scalar
+
         # print(f'Des pos: {joint_pos_desired}')
         self.update_desired_joint_positions(joint_pos_desired)

@@ -9,11 +9,21 @@ import cv2
 
 from rdt.common import util, path_util, lcm_util
 
-sys.path.append(osp.join(path_util.get_rdt_src(), 'lcm_types'))
+sys.path.append(osp.join(path_util.get_rdt_src(), "lcm_types"))
 from rdt.lcm_types.rdt_lcm import (
-    img_t, point_cloud_t, point_t, quaternion_t, pose_t, pose_stamped_t, start_goal_pose_stamped_t, 
-    point_cloud_t, point_cloud_array_t, simple_img_t, simple_depth_img_t, square_matrix_t)
-
+    img_t,
+    point_cloud_t,
+    point_t,
+    quaternion_t,
+    pose_t,
+    pose_stamped_t,
+    start_goal_pose_stamped_t,
+    point_cloud_t,
+    point_cloud_array_t,
+    simple_img_t,
+    simple_depth_img_t,
+    square_matrix_t,
+)
 
 
 class RealCompressedCombinedImageLCMSubscriber:
@@ -22,11 +32,15 @@ class RealCompressedCombinedImageLCMSubscriber:
 
         # rgb stuff
         self.rgb_img_sub_name = rgb_img_sub_name
-        self.rgb_img_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_sub_handler)  # set the queue size here?
+        self.rgb_img_sub = self.lc.subscribe(
+            self.rgb_img_sub_name, self.rgb_img_sub_handler
+        )  # set the queue size here?
 
         # depth stuff
         self.depth_img_sub_name = depth_img_sub_name
-        self.depth_img_sub = self.lc.subscribe(self.depth_img_sub_name, self.depth_img_sub_handler)  # set the queue size here?
+        self.depth_img_sub = self.lc.subscribe(
+            self.depth_img_sub_name, self.depth_img_sub_handler
+        )  # set the queue size here?
 
         self._rgb_msg = None
         self._depth_msg = None
@@ -43,9 +57,12 @@ class RealCompressedCombinedImageLCMSubscriber:
     def get_rgb_img(self, block=False):
         rgb_img = None
         with self._image_lock:
-            if self._rgb_msg is not None:
-                encoded_data_np = np.frombuffer(self._rgb_msg.data, dtype=np.uint8)
-                rgb_img = cv2.imdecode(encoded_data_np, cv2.IMREAD_COLOR)
+            while rgb_img is None:
+                if self._rgb_msg is not None:
+                    encoded_data_np = np.frombuffer(self._rgb_msg.data, dtype=np.uint8)
+                    rgb_img = cv2.imdecode(encoded_data_np, cv2.IMREAD_COLOR)
+                if not block:
+                    break
         return rgb_img
 
     def depth_img_sub_handler(self, channel, data):
@@ -56,12 +73,19 @@ class RealCompressedCombinedImageLCMSubscriber:
     def get_depth_img(self, block=False):
         depth_img = None
         with self._depth_lock:
-            if self._depth_msg is not None:
-                decompressed_depth_data = zlib.decompress(self._depth_msg.data)
-                depth_img = np.frombuffer(decompressed_depth_data, dtype=np.uint16).reshape(480, 640)
+            while depth_img is None:
+                if self._depth_msg is not None:
+                    decompressed_depth_data = zlib.decompress(self._depth_msg.data)
+                    depth_img = np.frombuffer(
+                        decompressed_depth_data, dtype=np.uint16
+                    ).reshape(480, 640)
+                if not block:
+                    break
         return depth_img
 
     def get_rgb_and_depth(self, block=False):
+        # rgb = self.get_rgb_img(block=block)
+        # depth = self.get_depth_img(block=block)
         rgb = self.get_rgb_img()
         depth = self.get_depth_img()
         return rgb, depth
@@ -72,7 +96,9 @@ class RealCompressedPCDLCMSubscriber:
         self.lc = lc
 
         self.pcd_sub_name = pcd_sub_name
-        self.pcd_sub = self.lc.subscribe(self.pcd_sub_name, self.pcd_sub_handler)  # set the queue size here?
+        self.pcd_sub = self.lc.subscribe(
+            self.pcd_sub_name, self.pcd_sub_handler
+        )  # set the queue size here?
 
         self._pcd_msg = None
         self._pcd = None
@@ -89,7 +115,9 @@ class RealCompressedPCDLCMSubscriber:
             if self._pcd_msg is not None:
                 # num_points = len(self._pcd_msg.data) // 12  # 12 bytes per point (3 floats)
                 num_points = self._pcd_msg.num_points
-                pcd = np.frombuffer(self._pcd_msg.data, dtype=np.float32).reshape(num_points, 3)
+                pcd = np.frombuffer(self._pcd_msg.data, dtype=np.float32).reshape(
+                    num_points, 3
+                )
         return pcd
 
 
@@ -99,7 +127,9 @@ class RealCompressedColorImageLCMSubscriber:
 
         # rgb stuff
         self.rgb_img_sub_name = rgb_img_sub_name
-        self.rgb_img_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_sub_handler)  # set the queue size here?
+        self.rgb_img_sub = self.lc.subscribe(
+            self.rgb_img_sub_name, self.rgb_img_sub_handler
+        )  # set the queue size here?
 
         self._rgb_msg = None
         self._rgb_image = None
@@ -125,11 +155,15 @@ class RealImageLCMSubscriber:
 
         # rgb stuff
         self.rgb_img_sub_name = rgb_img_sub_name
-        self.rgb_img_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_sub_handler)
+        self.rgb_img_sub = self.lc.subscribe(
+            self.rgb_img_sub_name, self.rgb_img_sub_handler
+        )
 
         # depth stuff
         self.depth_img_sub_name = depth_img_sub_name
-        self.depth_img_sub = self.lc.subscribe(self.depth_img_sub_name, self.depth_img_sub_handler)
+        self.depth_img_sub = self.lc.subscribe(
+            self.depth_img_sub_name, self.depth_img_sub_handler
+        )
 
         self._rgb_image = None
         self._depth_image = None
@@ -149,7 +183,7 @@ class RealImageLCMSubscriber:
                     rgb_img = copy.deepcopy(self._rgb_image).astype(np.uint8)
                 else:
                     rgb_img = None
-                
+
             if rgb_img is not None or not block:
                 with self._image_lock:
                     self._rgb_image = None
@@ -170,7 +204,7 @@ class RealImageLCMSubscriber:
                     depth_img = copy.deepcopy(self._depth_image).astype(np.uint16)
                 else:
                     depth_img = None
-            
+
             if depth_img is not None or not block:
                 with self._depth_lock:
                     self._depth_image = None
@@ -194,8 +228,12 @@ class RealCamInfoLCMSubscriber:
         self.lc = lc
         self.cam_pose_sub_name = cam_pose_sub_name
         self.cam_intrinsics_sub_name = cam_intrinsics_sub_name
-        self.cam_pose_sub = self.lc.subscribe(self.cam_pose_sub_name, self.cam_pose_sub_handler)
-        self.cam_int_sub = self.lc.subscribe(self.cam_intrinsics_sub_name, self.cam_intrinsics_sub_handler)
+        self.cam_pose_sub = self.lc.subscribe(
+            self.cam_pose_sub_name, self.cam_pose_sub_handler
+        )
+        self.cam_int_sub = self.lc.subscribe(
+            self.cam_intrinsics_sub_name, self.cam_intrinsics_sub_handler
+        )
 
         self.cam_pose = None
         self.cam_int = None
@@ -249,7 +287,7 @@ class RealPCDLCMSubscriber:
         msg = point_cloud_t.decode(data)
         points = msg.points
         num_pts = msg.num_points
-        
+
         with self._pcd_lock:
             self.points = lcm_util.unpack_pointcloud_lcm(points, num_pts)
 
@@ -267,11 +305,13 @@ class RealEEPoseLCMSubscriber:
     def __init__(self, lc, ee_pose_sub_name):
         self.lc = lc
         self.ee_pose_sub_name = ee_pose_sub_name
-        self.ee_pose_sub = self.lc.subscribe(self.ee_pose_sub_name, self.ee_pose_sub_handler)
+        self.ee_pose_sub = self.lc.subscribe(
+            self.ee_pose_sub_name, self.ee_pose_sub_handler
+        )
 
         self.ee_pose = None
         self._ee_lock = threading.RLock()
-    
+
     def ee_pose_sub_handler(self, channel, data):
         msg = pose_stamped_t.decode(data)
         with self._ee_lock:
@@ -280,7 +320,7 @@ class RealEEPoseLCMSubscriber:
     def get_ee_pose(self, block=False):
         while True:
             # wait to receive commands from the optimizer
-            with self._ee_lock:  
+            with self._ee_lock:
                 ee_pose = copy.deepcopy(self.ee_pose)
             if ee_pose is not None or not block:
                 break
@@ -298,11 +338,11 @@ class RealDualEEPoseLCMSubscriber:
         self.start_pose = None
         self.goal_pose = None
         self._pose_lock = threading.RLock()
-    
+
     def ee_pose_sub_handler(self, channel, data):
         msg = start_goal_pose_stamped_t.decode(data)
         with self._pose_lock:
-            print(f'Got something on channel: {channel}')
+            print(f"Got something on channel: {channel}")
             self.start_pose = lcm_util.pose_stamped2list(msg.start_pose)
             self.goal_pose = lcm_util.pose_stamped2list(msg.goal_pose)
 
@@ -311,7 +351,7 @@ class RealDualEEPoseLCMSubscriber:
             with self._pose_lock:
                 start_pose = copy.deepcopy(self.start_pose)
                 goal_pose = copy.deepcopy(self.goal_pose)
-            
+
             if (start_pose is not None and goal_pose is not None) or not block:
                 with self._pose_lock:
                     self.start_pose = None
@@ -322,20 +362,32 @@ class RealDualEEPoseLCMSubscriber:
 
 
 class RealImageSubscriber:
-    def __init__(self, lc, rgb_img_sub_name, depth_img_sub_name,
-                 rgb_img_arr_sub_name=None, depth_img_arr_sub_name=None, timeout=120.0, use_timeout=False):
+    def __init__(
+        self,
+        lc,
+        rgb_img_sub_name,
+        depth_img_sub_name,
+        rgb_img_arr_sub_name=None,
+        depth_img_arr_sub_name=None,
+        timeout=120.0,
+        use_timeout=False,
+    ):
         self.lc = lc
         # rgb stuff
         self.rgb_img_sub_name = rgb_img_sub_name
         self.rgb_img_arr_sub_name = rgb_img_arr_sub_name
-        self.rgb_img_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_sub_handler)
-        #self.rgb_img_arr_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_arr_sub_handler)
+        self.rgb_img_sub = self.lc.subscribe(
+            self.rgb_img_sub_name, self.rgb_img_sub_handler
+        )
+        # self.rgb_img_arr_sub = self.lc.subscribe(self.rgb_img_sub_name, self.rgb_img_arr_sub_handler)
 
         # depth stuff
         self.depth_img_sub_name = depth_img_sub_name
         self.depth_img_arr_sub_name = depth_img_arr_sub_name
-        self.depth_img_sub = self.lc.subscribe(self.depth_img_sub_name, self.depth_img_sub_handler)
-        #self.depth_img_arr_sub = self.lc.subscribe(self.depth_img_sub_name, self.depth_img_arr_sub_handler)
+        self.depth_img_sub = self.lc.subscribe(
+            self.depth_img_sub_name, self.depth_img_sub_handler
+        )
+        # self.depth_img_arr_sub = self.lc.subscribe(self.depth_img_sub_name, self.depth_img_arr_sub_handler)
 
         self.sub_timeout = timeout
         self.use_timeout = use_timeout
@@ -357,7 +409,7 @@ class RealImageSubscriber:
             if self.use_timeout:
                 self.lc.handle_timeout(self.sub_timeout)
             else:
-               self.lc.handle()
+                self.lc.handle()
         rgb_img = self.rgb_img
         return rgb_img
 
@@ -400,7 +452,9 @@ class RealPCDSubscriber:
         self.pcd_sub_name = pcd_sub_name
         self.pcd_arr_sub_name = pcd_arr_sub_name
         self.pcd_sub = self.lc.subscribe(self.pcd_sub_name, self.pcd_sub_handler)
-        self.pcd_arr_sub = self.lc.subscribe(self.pcd_arr_sub_name, self.pcd_arr_sub_handler)
+        self.pcd_arr_sub = self.lc.subscribe(
+            self.pcd_arr_sub_name, self.pcd_arr_sub_handler
+        )
 
     def pcd_sub_handler(self, channel, data):
         msg = point_cloud_t.decode(data)
@@ -441,19 +495,30 @@ class RealPCDSubscriber:
 
 
 class RealCamInfoSubscriber:
-    def __init__(self, lc, cam_pose_sub_name, cam_intrinsics_sub_name, timeout=10.0, use_timeout=False):
+    def __init__(
+        self,
+        lc,
+        cam_pose_sub_name,
+        cam_intrinsics_sub_name,
+        timeout=10.0,
+        use_timeout=False,
+    ):
         self.lc = lc
         self.cam_pose_sub_name = cam_pose_sub_name
         self.cam_intrinsics_sub_name = cam_intrinsics_sub_name
-        self.cam_pose_sub = self.lc.subscribe(self.cam_pose_sub_name, self.cam_pose_sub_handler)
-        self.cam_int_sub = self.lc.subscribe(self.cam_intrinsics_sub_name, self.cam_intrinsics_sub_handler)
+        self.cam_pose_sub = self.lc.subscribe(
+            self.cam_pose_sub_name, self.cam_pose_sub_handler
+        )
+        self.cam_int_sub = self.lc.subscribe(
+            self.cam_intrinsics_sub_name, self.cam_intrinsics_sub_handler
+        )
 
         self.sub_timeout = timeout
         self.use_timeout = use_timeout
-    
+
     def cam_pose_sub_handler(self, channel, data):
         msg = pose_stamped_t.decode(data)
-        print('got something')
+        print("got something")
         self.cam_pose = lcm_util.pose_stamped2list(msg)
         self.received_pose_message = True
 
@@ -474,7 +539,7 @@ class RealCamInfoSubscriber:
             else:
                 self.lc.handle()
             time.sleep(0.001)
-        
+
         return self.cam_pose
 
     def get_cam_intrinsics(self):
@@ -495,11 +560,13 @@ class RealEEPoseSubscriber:
     def __init__(self, lc, ee_pose_sub_name):
         self.lc = lc
         self.ee_pose_sub_name = ee_pose_sub_name
-        self.ee_pose_sub = self.lc.subscribe(self.ee_pose_sub_name, self.ee_pose_sub_handler)
-    
+        self.ee_pose_sub = self.lc.subscribe(
+            self.ee_pose_sub_name, self.ee_pose_sub_handler
+        )
+
     def ee_pose_sub_handler(self, channel, data):
         msg = pose_stamped_t.decode(data)
-        print('got something')
+        print("got something")
         self.ee_pose = lcm_util.pose_stamped2list(msg)
         self.received_pose_message = True
 
@@ -511,5 +578,5 @@ class RealEEPoseSubscriber:
                 break
             self.lc.handle()
             time.sleep(0.001)
-        
+
         return self.ee_pose

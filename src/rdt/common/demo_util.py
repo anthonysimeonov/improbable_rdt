@@ -13,22 +13,26 @@ class CollectEnum(Enum):
     SKILL = 6  # Annotate new skill.
     RESET = 7  # Reset environment.
     TERMINATE = 8  # Terminate data collection.
+    RECORD = 9  # Start recording.
+    PAUSE_HOLD = 10  # Start recording.
 
 
 def save_rgbd(rgbd_list, dirname):
-    assert os.path.exists(dirname), f'Directory {dirname} does not exist, cannot save data'
+    assert os.path.exists(
+        dirname
+    ), f"Directory {dirname} does not exist, cannot save data"
 
     n_imgs = len(rgbd_list)
-    rgb_fnames = [osp.join(dirname, f'rgb_{i}.png') for i in range(n_imgs)]
-    depth_fnames = [osp.join(dirname, f'depth_{i}.png') for i in range(n_imgs)]
+    rgb_fnames = [osp.join(dirname, f"rgb_{i}.png") for i in range(n_imgs)]
+    depth_fnames = [osp.join(dirname, f"depth_{i}.png") for i in range(n_imgs)]
 
     # save rgb
     for i, imgs in enumerate(rgbd_list):
-        imageio.imwrite(rgb_fnames[i], imgs['rgb'])
+        imageio.imwrite(rgb_fnames[i], imgs["rgb"])
 
     # save depth
     for i, imgs in enumerate(rgbd_list):
-        imageio.imwrite(depth_fnames[i], imgs['depth'])
+        imageio.imwrite(depth_fnames[i], imgs["depth"])
 
 
 def save_robot_state(robot_state_dict):

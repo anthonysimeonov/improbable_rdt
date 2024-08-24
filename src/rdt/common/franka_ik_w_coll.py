@@ -5,9 +5,12 @@ import os, os.path as osp
 import copy
 import sys
 import random
+import trimesh
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 pb_planning_src = os.environ['PB_PLANNING_SOURCE_DIR']
+# pb_planning_src = os.getenv('HOME') + '/pybullet-planning/' #os.environ['PB_PLANNING_SOURCE_DIR']
 sys.path.append(pb_planning_src)
 import pybullet as p
 
@@ -18,13 +21,23 @@ from pybullet_tools.utils import add_data_path, connect, dump_body, disconnect, 
     plan_joint_motion, create_attachment, enable_real_time, disable_real_time, body_from_end_effector, set_pose, set_renderer
 
 from pybullet_tools.ikfast.franka_panda.ik import PANDA_INFO, FRANKA_URDF_2F140, FRANKA_URDF, FRANKA_URDF_NOGRIPPER
+# FRANKA_URDF = FRANKA_URDF_WIDE
 FRANKA_URDF_NOGRIPPER = osp.join(pb_planning_src, FRANKA_URDF_NOGRIPPER)
 FRANKA_URDF = osp.join(pb_planning_src, FRANKA_URDF)
 print('FRANKA URDF: ', FRANKA_URDF)
 FRANKA_URDF_2F140 = osp.join(pb_planning_src, FRANKA_URDF_2F140)
 from pybullet_tools.ikfast.ikfast import get_ik_joints, either_inverse_kinematics, check_ik_solver
 
-from rdt.common import util
+from airobot.utils import common
+
+sys.path.append(os.getenv('CGN_SRC_DIR'))
+from test_meshcat_pcd import viz_scene as V
+from test_meshcat_pcd import meshcat_pcd_show as VP
+# from test_meshcat_pcd import viz_pcd as VP
+
+from rdt.utils import util
+from rdt.collision.collision_checker import PointCollision
+# import evaluation.utils as util #, path_util
 
 
 class PbPlUtils:
@@ -76,7 +89,7 @@ class Attachment(object):
 
 
 class FrankaIK:
-    def __init__(self, gui=True, base_pos=[0, 0, 1], robotiq=True, no_gripper=False, mc_vis=None):
+    def __init__(self, gui=True, base_pos=[0, 0, 1], occnet=True, robotiq=True, no_gripper=False, mc_vis=None):
         self.robotiq = robotiq
         if gui:
             set_client(0)
@@ -182,12 +195,88 @@ class FrankaIK:
             self._ee_to_grasp_target = [0, 0, 0.105, 0, 0, 0, 1]
 
         self.mc_vis = mc_vis
+        if occnet:
+            self.occnet = PointCollision(None)
+            self._setup_occnet_qp()
 
         self.lower_limits = [get_joint_info(self.robot, joint).jointLowerLimit for joint in self.ik_joints]
         self.upper_limits = [get_joint_info(self.robot, joint).jointUpperLimit for joint in self.ik_joints]
         
     def set_mc_vis(self, mc_vis):
         self.mc_vis = mc_vis
+
+    def _setup_occnet_qp(self):
+        '''
+        sets up query points for each link in the robot
+        '''
+        link_dir = os.path.join(pb_planning_src, 'models/franka_description/meshes/collision')
+        if self.robotiq:
+            hand_dir = os.path.join(pb_planning_src, 'models/franka_description/meshes/robotiq_2f140/collision')
+        else:
+            hand_dir = link_dir
+
+        path_names = []
+        link_names = ['link0','link1','link2','link3','link4','link5','link6','link7']
+        for name in link_names:
+            path_names.append(os.path.join(link_dir, name+'.stl'))
+        if not self.robotiq:
+            path_names.append(os.path.join(hand_dir, 'hand.stl'))
+        else:
+            hand_names = ['base_link'] + 2*['140_outer_knuckle', '140_outer_finger', '140_inner_finger','inner_finger_pad','140_inner_knuckle']
+            for name in hand_names:
+                path_names.append(os.path.join(hand_dir, 'robotiq_arg2f_'+name+'.stl'))
+        self.qp_eye = []
+        for path in path_names:
+            mesh = trimesh.load(path)
+            points = trimesh.sample.volume_mesh(mesh, 500)
+            # points = trimesh.sample.sample_surface(mesh, 1000)[0]
+            points = np.concatenate((points, np.ones((points.shape[0], 1))), axis=1)
+            self.qp_eye.append(points)
+        self.update_qp()
+        
+    def update_qp(self):
+        '''
+        updates the self.qp attribute with the poses of each link
+        '''
+        self.qp = []
+        pos, ori = p.getBasePositionAndOrientation(self.robot, physicsClientId=self.pb_client)
+        base_pose = np.eye(4)
+        base_pose[:3,:3] = R.from_quat(ori).as_matrix()
+        base_pose[:3,3] = pos
+        self.qp.append(np.matmul(base_pose, self.qp_eye[0].T).T)
+        
+        link_ids = list(np.arange(7))
+        self.hand_link_ids = []
+        if self.no_gripper:
+            pass 
+        else:
+            if self.robotiq:
+                # link_ids += [8]
+                # link_ids += list(np.arange(10,20))
+                # # link_ids += list(np.arange(15,18))
+                self.hand_link_ids = [8] + np.arange(10, 20).tolist()
+            else:
+                # link_ids.append(8) #hand
+                self.hand_link_ids = [8]
+            link_ids += self.hand_link_ids
+
+        self.hand_qp_inds = [] 
+        for i, link in enumerate(link_ids): #links 0-7
+            # print('link',link)
+            link_info = p.getLinkState(self.robot, link, physicsClientId=self.pb_client)
+            pos, ori = link_info[4:]
+            qp = self.qp_eye[1:][i]
+            link_pose = np.eye(4)
+            link_pose[:3,:3] = R.from_quat(ori).as_matrix()
+            link_pose[:3,3] = pos
+            self.qp.append(np.matmul(link_pose, qp.T).T)
+            if link in self.hand_link_ids:
+                self.hand_qp_inds.append(i)
+        
+        # VP(None, np.concatenate(self.qp,0), name='qp', clear=False)
+        VP(self.mc_vis, np.concatenate(self.qp,0), name='qp', clear=False)
+        # print(link_ids)
+        # from IPython import embed; embed()
 
     def set_jpos(self, jnts):
         set_joint_positions(self.robot, self.ik_joints, jnts)
@@ -296,6 +385,7 @@ class FrankaIK:
 
     def check_collision(self, pcd=None, thresh=0.5, hand_only=False):
         # self_collision = any_link_pair_collision(self.robot, None, self.robot, None)
+        self.update_qp()
 
         within_joint_limits = self.within_joint_limits(self.get_jpos())
         if not within_joint_limits:
@@ -310,7 +400,58 @@ class FrankaIK:
             if collision:
                 return True, name
 
+        if self.occnet and pcd is not None:
+            collides, name = self.occnet_check(pcd, thresh=thresh, hand_only=hand_only)
+            return collides, name
+        
         return False, None
+
+    def occnet_check(self, pcd, link=None, thresh=0.5, mean_shift=True, hand_only=False):
+        if link is None:
+            if hand_only:
+                qp_check_list = [self.qp[idx] for idx in self.hand_qp_inds]
+                qp_check = np.concatenate(qp_check_list, 0)[:, :3]
+            else:
+                qp_check = np.concatenate(self.qp, 0)[:,:3]
+            if mean_shift:
+                in_pts, max_occ = self.occnet.con_check(
+                    pcd - np.mean(pcd, axis=0), 
+                    qp_check - np.mean(pcd, axis=0), 
+                    thresh=thresh)
+                in_pts = in_pts + np.mean(pcd, axis=0)
+            else:
+                in_pts, max_occ = self.occnet.con_check(
+                    pcd, 
+                    qp_check,
+                    thresh=thresh)
+            # in_pts, max_occ = self.occnet.con_check(pcd, np.concatenate(self.qp,0)[:,:3], thresh=thresh)
+            VP(self.mc_vis, qp_check, name='scene/occnet_check/qp_check', size=0.0025, color=(0, 255, 0), clear=False)
+            VP(self.mc_vis, pcd, name='scene/occnet_check/pcd', size=0.0007, clear=False)
+            VP(self.mc_vis, in_pts, name='scene/occnet_check/in', size=0.004, color=(255, 0, 0), clear=False)
+
+        else: # check a specific link
+            if mean_shift:
+                in_pts, max_occ = self.occnet.con_check(
+                    pcd - np.mean(pcd, axis=0), 
+                    self.qp[link][:, :3] - np.mean(pcd, axis=0), 
+                    thresh=thresh)
+            else:
+                in_pts, max_occ = self.occnet.con_check(
+                    pcd, 
+                    self.qp[link][:, :3], 
+                    thresh=thresh)
+            # in_pts, max_occ = self.occnet.con_check(pcd, self.qp[link][:, :3], thresh=thresh)
+
+            # VP(None, pcd, name='pcd', size=0.0007, clear=False)
+            # VP(None, in_pts, name='in', size=0.004, color=(255,0,0), clear=False)
+            VP(self.mc_vis, pcd, name='pcd', size=0.0007, clear=False)
+            VP(self.mc_vis, in_pts, name='in', size=0.004, color=(255,0,0), clear=False)
+            # print(in_pts.shape[0])
+            # from IPython import embed; embed()
+        if in_pts.shape[0] > 1:
+            return True, 'points'
+        return False, None
+
 
     def _convert_to_ee(self, pose_list):
         pose_list = util.pose_stamped2list(util.convert_reference_frame(
@@ -389,8 +530,20 @@ class FrankaIK:
         print('Failed to get feasible IK')
         return None
     
-    def plan_joint_motion(self, start, goal, alg='rrt_star', max_time=5.0):
+    def plan_joint_motion(self, start, goal, alg='rrt_star', max_time=5.0, pcd=None, occnet_thresh=0.5):
+    # def plan_joint_motion(self, start, goal, alg='birrt', max_time=5.0, pcd=None, occnet_thresh=0.5):
         self.set_jpos(start)
+        if pcd is not None:
+            # ik_obj = self
+            obstacle_pcd = pcd 
+            update_qp_fn = self.update_qp 
+            occnet_check_fn = self.occnet_check
+            occnet_check_thresh = occnet_thresh
+        else:
+            obstacle_pcd = None
+            update_qp_fn = None
+            occnet_check_fn = None
+            occnet_check_thresh = None
         
         if start is None:
             print(f'Start is None, returning None')
@@ -401,7 +554,8 @@ class FrankaIK:
 
         plan = plan_joint_motion(
             self.robot, self.ik_joints, goal, obstacles=self.obstacle_dict.values(), self_collisions=True, attachments=self.attachment_dict.values(),
-            disabled_collisions=set(self.panda_ignore_pairs), algorithm=alg, max_time=max_time)
+            disabled_collisions=set(self.panda_ignore_pairs), algorithm=alg, max_time=max_time, 
+            obstacle_pcd=obstacle_pcd, update_qp_fn=update_qp_fn, occnet_check_fn=occnet_check_fn, occnet_check_thresh=occnet_check_thresh)
         return plan
 
     def _retract(self):
@@ -434,57 +588,3 @@ class FrankaIK:
         remove_handles(handles)
         return path
 
-
-if __name__ == "__main__":
-
-    import argparse
-    import meshcat
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--port_vis', '-p', type=int, default=6000)
-
-    args = parser.parse_args()
-
-    zmq_url=f'tcp://127.0.0.1:{args.port_vis}'
-    mc_vis = meshcat.Visualizer(zmq_url=zmq_url)
-    mc_vis['scene'].delete()
-
-    ik_helper = FrankaIK(gui=True, base_pos=[0, 0, 0], no_gripper=True, mc_vis=mc_vis)
-
-    def getJointStates(robot):
-        joint_states = p.getJointStates(robot, range(p.getNumJoints(robot)))
-        joint_positions = [state[0] for state in joint_states]
-        joint_velocities = [state[1] for state in joint_states]
-        joint_torques = [state[3] for state in joint_states]
-        return joint_positions, joint_velocities, joint_torques
-
-
-    def getMotorJointStates(robot):
-        joint_states = p.getJointStates(robot, range(p.getNumJoints(robot)))
-        joint_infos = [p.getJointInfo(robot, i) for i in range(p.getNumJoints(robot))]
-        joint_states = [j for j, i in zip(joint_states, joint_infos) if i[3] > -1]
-        joint_positions = [state[0] for state in joint_states]
-        joint_velocities = [state[1] for state in joint_states]
-        joint_torques = [state[3] for state in joint_states]
-        return joint_positions, joint_velocities, joint_torques
-
-    # Get the joint and link state directly from Bullet.
-    pos, vel, torq = getJointStates(ik_helper.robot)
-    mpos, mvel, mtorq = getMotorJointStates(ik_helper.robot)
-
-    result = p.getLinkState(ik_helper.robot,
-                            ik_helper.tool_link,
-                            computeLinkVelocity=1,
-                            computeForwardKinematics=1)
-    link_trn, link_rot, com_trn, com_rot, frame_pos, frame_rot, link_vt, link_vr = result
-
-    zero_vec = [0.0] * len(mpos)
-    jac_t, jac_r = p.calculateJacobian(
-        ik_helper.robot,
-        ik_helper.tool_link,
-        com_trn,
-        mpos,
-        zero_vec,
-        zero_vec
-    )
-
-    from IPython import embed; embed()
