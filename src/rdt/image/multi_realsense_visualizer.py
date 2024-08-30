@@ -120,10 +120,7 @@ def main(args):
     pipelines = enable_devices(serials, ctx, resolution_width, resolution_height, frame_rate)
 
     time.sleep(1.0)
-
-    print(f'Here to inspect pipelines')
-    from IPython import embed; embed()
-
+    
     try:
         while True:
             exit = Visualize(pipelines)

@@ -8,6 +8,9 @@ import torchcontrol as toco
 
 from polymetis import GripperInterface, RobotInterface
 from rdt.polymetis_robot_utils.polymetis_util import PolymetisHelper
+from collections import namedtuple
+
+import grpc
 
 poly_util = PolymetisHelper()
 
@@ -74,26 +77,21 @@ class ResolvedRateControl(toco.PolicyModule):
         return {"joint_torques": torque_out}
 
 
-"""
-wrapper that addds the resolved rate controller + changes quaternion order to xyzw
-"""
-
-
 class DiffIKWrapper(RobotInterface):
+    """
+    wrapper that addds the resolved rate controller + changes quaternion order to xyzw
+    """
 
-    def __init__(
-        self,
-        time_to_go_default: float = 1.0,
-        use_grav_comp: bool = True,
-        *args,
-        **kwargs
-    ):
+    def __init__(self, robot_home, Kq, Kqd, *args, **kwargs):
 
         super().__init__(*args, **kwargs)
         # self.pos_scalar = 1.0
         # self.rot_scalar = 2.0
         self.pos_scalar = np.array([1.0] * 3)  # x, y, z
         self.rot_scalar = np.array([1.0] * 3)  # r, p, y
+        self.robot_home = robot_home
+        self.Kq = Kq
+        self.Kqd = Kqd
 
         # self.pos_scalar = np.array([0.5] * 3)  # x, y, z
         # self.rot_scalar = np.array([0.5] * 3)  # r, p, y
@@ -166,7 +164,15 @@ class DiffIKWrapper(RobotInterface):
         ee_dpose = torch.Tensor([*ee_dpos, *ee_drot]).float()
         return ee_dpose
 
-    def update_desired_ee_pose(self, ee_pose_mat, dt=0.1, scalar=1.0):
+    def update_desired_ee_pose(self, ee_pose_mat, dt=0.1, scalar=1.0) -> torch.Tensor:
+        """
+        Update the desired end-effector pose (position and orientation) using a resolved-rate controller.
+
+        :param ee_pose_mat: Desired end-effector pose as a 4x4 transformation matrix
+        :param dt: Time step for velocity computation
+        :param scalar: Scalar multiplier for the desired joint velocities
+        :return: Tuple of (current joint positions, desired joint positions)
+        """
         joint_pos_current = self.get_joint_positions()
         jacobian = self.robot_model.compute_jacobian(joint_pos_current)
         ee_velocity_desired = self.compute_ee_vel_desired(
@@ -178,3 +184,16 @@ class DiffIKWrapper(RobotInterface):
 
         # print(f'Des pos: {joint_pos_desired}')
         self.update_desired_joint_positions(joint_pos_desired)
+
+        return joint_pos_desired
+
+    def reset(self, randomize=False):
+
+        robot_home = self.robot_home
+
+        if randomize:
+            home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(5)
+            robot_home = robot_home + home_noise
+
+        self.move_to_joint_positions(robot_home)
+        self.start_joint_impedance(Kq=self.Kq, Kqd=self.Kqd, adaptive=True)
