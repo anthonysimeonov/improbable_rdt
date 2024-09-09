@@ -164,7 +164,9 @@ class DiffIKWrapper(RobotInterface):
         ee_dpose = torch.Tensor([*ee_dpos, *ee_drot]).float()
         return ee_dpose
 
-    def update_desired_ee_pose(self, ee_pose_mat, dt=0.1, scalar=1.0) -> torch.Tensor:
+    def update_desired_ee_pose(
+        self, ee_pose_mat: torch.Tensor, dt=0.1, scalar=1.0
+    ) -> torch.Tensor:
         """
         Update the desired end-effector pose (position and orientation) using a resolved-rate controller.
 
@@ -182,7 +184,6 @@ class DiffIKWrapper(RobotInterface):
         joint_vel_desired = torch.linalg.lstsq(jacobian, ee_velocity_desired).solution
         joint_pos_desired = joint_pos_current + joint_vel_desired * dt * scalar
 
-        # print(f'Des pos: {joint_pos_desired}')
         self.update_desired_joint_positions(joint_pos_desired)
 
         return joint_pos_desired
@@ -192,7 +193,7 @@ class DiffIKWrapper(RobotInterface):
         robot_home = self.robot_home
 
         if randomize:
-            home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(5)
+            home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(10)
             robot_home = robot_home + home_noise
 
         self.move_to_joint_positions(robot_home)

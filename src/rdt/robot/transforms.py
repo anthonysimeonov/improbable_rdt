@@ -4,7 +4,7 @@ import scipy.spatial.transform as st
 from rdt.transformation.pose_matrix import convert_reference_frame_mat
 
 
-def convert_tip2wrist(tip_pose_mat):
+def convert_tip2wrist(tip_pose_mat: np.ndarray) -> np.ndarray:
     """
     Convert tip pose to wrist pose for the Franka Panda
 
@@ -26,7 +26,7 @@ def convert_tip2wrist(tip_pose_mat):
     return wrist_pose_mat
 
 
-def convert_wrist2tip(wrist_pose_mat):
+def convert_wrist2tip(wrist_pose_mat: np.ndarray) -> np.ndarray:
     """
     Convert wrist pose to tip pose for the Franka Panda
 

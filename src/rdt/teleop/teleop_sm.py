@@ -2,6 +2,8 @@ from pathlib import Path
 import pickle
 import time
 from multiprocessing.managers import SharedMemoryManager
+from typing import List
+import cv2
 import torch
 import numpy as np
 from datetime import datetime
@@ -22,10 +24,6 @@ from rdt.common.demo_util import CollectEnum
 from rdt.image.factory import enable_single_realsense
 from rdt.teleop.utils import scale_scripted_action
 from rdt.robot.transforms import convert_tip2wrist, convert_wrist2tip
-
-# from src.real.serials import CAMERA1_SERIAL, CAMERA2_SERIAL
-CAMERA1_SERIAL = "242622071805"
-CAMERA2_SERIAL = "242522072326"
 
 from ipdb import set_trace as bp
 
@@ -86,9 +84,9 @@ def execute_gripper_action(
     if not toggle_gripper:
         return
     if gripper_open:
-        gripper.grasp(0.07, 70, blocking=False)
+        gripper.grasp(0.2, 70, blocking=False)
     else:
-        gripper.goto(0.065, 0.05, 0.1, blocking=False)
+        gripper.goto(0.08, 0.2, 0.1, blocking=False)
 
 
 class ActionContainer:
@@ -119,19 +117,21 @@ class ObsActHelper:
         keyboard: KeyboardInterface,
         robot: DiffIKWrapper,
         gripper: GripperInterface,
-        image1_pipeline: rs.pipeline,
-        image2_pipeline: rs.pipeline,
+        image_pipelines: List[rs.pipeline],
+        resize_images: bool = False,
+        include_depth: bool = False,
+        resize_size: tuple = (256, 256),
+        show_images: bool = False,
     ):
-
         self.sm = sm
-
         self.keyboard = keyboard
-
         self.robot = robot
         self.gripper = gripper
-
-        self.image1_pipeline = image1_pipeline
-        self.image2_pipeline = image2_pipeline
+        self.image_pipelines = image_pipelines
+        self.resize_images = resize_images
+        self.include_depth = include_depth
+        self.image_height, self.image_width = resize_size
+        self.show_images = show_images
 
         self._setup()
 
@@ -203,9 +203,9 @@ class ObsActHelper:
         )
 
         # convert and scale rot command
-        drot_xyz = sm_state[3:] * (self.max_rot_speed / self.frequency)
+        drot_xyz = sm_state[3:]
         drot_rotvec = st.Rotation.from_euler("xyz", drot_xyz).as_rotvec()
-        drot_rotvec *= self.sm_drot_scalar
+        drot_rotvec *= (self.max_rot_speed / self.frequency) * self.sm_drot_scalar
         drot = st.Rotation.from_rotvec(drot_rotvec)
 
         # get keyboard actions/flags
@@ -326,12 +326,32 @@ class ObsActHelper:
         return img_dict
 
     def get_observation(self):
+        obs = dict()
+
         # get the rgb images
-        image1_rgbd = self.get_rgbd_rs(self.image1_pipeline)
-        image2_rgbd = self.get_rgbd_rs(self.image2_pipeline)
+        for i, pipe in enumerate(self.image_pipelines, start=1):
+            img = self.get_rgbd_rs(pipe)
+
+            if self.resize_images:
+                img["rgb"] = cv2.resize(
+                    img["rgb"], (self.image_width, self.image_height)
+                )
+                img["depth"] = cv2.resize(
+                    img["depth"], (self.image_width, self.image_height)
+                )
+
+            if self.show_images:
+                cv2.imshow(f"rgb{i}", cv2.cvtColor(img["rgb"], cv2.COLOR_BGR2RGB))
+                cv2.waitKey(1)
+
+            obs[f"color_image{i}"] = img["rgb"]
+
+            if self.include_depth:
+                obs[f"depth_image{i}"] = img["depth"]
 
         # get the robot state
         current_ee_wrist_pose_mat = poly_util.polypose2mat(self.robot.get_ee_pose())
+
         # convert to tip
         current_ee_tip_pose_mat = convert_wrist2tip(current_ee_wrist_pose_mat)
         current_ee_tip_pose = poly_util.mat2polypose(current_ee_tip_pose_mat)
@@ -351,13 +371,7 @@ class ObsActHelper:
         )
 
         # pack these
-        obs = dict(
-            color_image1=image1_rgbd["rgb"],
-            color_image2=image2_rgbd["rgb"],
-            depth_image1=image1_rgbd["depth"],
-            depth_image2=image2_rgbd["depth"],
-            robot_state=robot_state_dict,
-        )
+        obs["robot_state"] = robot_state_dict
 
         return obs
 
@@ -378,8 +392,9 @@ def main():
     parser.add_argument("--frequency", type=int, default=10)  # 30
     parser.add_argument("--command_latency", type=float, default=0.01)
     parser.add_argument("--deadzone", type=float, default=0.05)
-    parser.add_argument("--max_pos_speed", type=float, default=0.3)
-    parser.add_argument("--max_rot_speed", type=float, default=0.7)
+    parser.add_argument("--max-pos-speed", type=float, default=1.0)
+    parser.add_argument("--max-rot-speed", type=float, default=1.5)
+    parser.add_argument("--resize-images", action="store_true")
     parser.add_argument("--use_lcm", action="store_true")
     parser.add_argument("--save_dir", required=True)
     parser.add_argument("--task", type=str, required=True)
@@ -396,10 +411,7 @@ def main():
 
     # setup robot
     franka_ip = "173.16.0.1"
-    robot_home = torch.Tensor(
-        # [-0.0931, 0.0382, 0.1488, -2.3811, -0.0090, 2.4947, 0.1204]
-        [-0.253, -0.198, 0.026, -2.388, 0.327, 2.407, 1.473]
-    )
+    robot_home = torch.Tensor([-0.253, -0.198, 0.026, -2.388, 0.327, 2.407, 1.473])
     Kq = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
     Kqd = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
 
@@ -412,7 +424,8 @@ def main():
     gripper = GripperInterface(ip_address=franka_ip)
 
     # manual home
-    gripper.goto(0.065, 0.05, 0.1, blocking=False)
+    gripper.goto(0.08, 0.05, 0.1, blocking=False)  # 0.065
+
     robot.reset()
 
     sm_dpos_scalar = np.array([1.8] * 3)
@@ -429,19 +442,24 @@ def main():
     resolution_height = rs_cfg.HEIGHT  # pixels
     frame_rate = rs_cfg.FRAME_RATE  # fps
 
+    camera_serials = [
+        "242622071805",  # Global camera 1
+        "242522072326",  # Wrist camera
+        "243522073271",  # Global camera 2
+    ]
+
+    print(f"Camera serials: {camera_serials}")
+
     ctx = rs.context()  # Create librealsense context for managing devices
 
-    print(
-        f"Enabling devices with serial numbers: {CAMERA1_SERIAL} (front) and {CAMERA2_SERIAL} (wrist)"
-    )
-    image1_pipeline = enable_single_realsense(
-        CAMERA1_SERIAL, ctx, resolution_width, resolution_height, frame_rate
-    )
-    time.sleep(1.0)
-    image2_pipeline = enable_single_realsense(
-        CAMERA2_SERIAL, ctx, resolution_width, resolution_height, frame_rate
-    )
-    time.sleep(1.0)
+    image_pipelines = []
+
+    for serial in camera_serials:
+        pipeline = enable_single_realsense(
+            serial, ctx, resolution_width, resolution_height, frame_rate
+        )
+        image_pipelines.append(pipeline)
+        time.sleep(1.0)
 
     # Setup data saving
     demo_save_dir = Path(args.save_dir)
@@ -457,6 +475,7 @@ def main():
     # === Main loop ===
     while n_successes < args.n_demos:
         pkl_path = demo_save_dir / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
+        robot.reset(randomize=True)
 
         episode_data = {}
         episode_data["observations"] = []
@@ -491,8 +510,11 @@ def main():
             keyboard=keyboard,
             robot=robot,
             gripper=gripper,
-            image1_pipeline=image1_pipeline,
-            image2_pipeline=image2_pipeline,
+            image_pipelines=image_pipelines,
+            resize_images=args.resize_images,
+            include_depth=True,
+            resize_size=(252, 448),
+            show_images=False,
         )
 
         # obs_act_helper.set_target_pose(target_pose)
@@ -504,8 +526,6 @@ def main():
             sm_drot_scalar=sm_drot_scalar,
             frequency=args.frequency,
         )
-
-        robot.reset(randomize=True)
 
         global_start_time = time.time()
         print(f"Start collecting!")
@@ -574,6 +594,10 @@ def main():
 
             precise_wait(t_cycle_end)
             iter_idx += 1
+
+            # print(
+            #     f"Iteration {iter_idx} complete, time elapsed: {time.time() - global_start_time}, frequency: {iter_idx / (time.time() - global_start_time)}"
+            # )
 
         global_total_time = time.time() - global_start_time
         print(f"Time elapsed: {global_total_time}")
