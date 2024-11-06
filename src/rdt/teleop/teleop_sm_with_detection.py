@@ -25,12 +25,95 @@ from rdt.image.factory import enable_single_realsense
 from rdt.teleop.utils import scale_scripted_action
 from rdt.robot.transforms import convert_tip2wrist, convert_wrist2tip
 
+from furniture_bench.perception.realsense import RealsenseCam
+from furniture_bench.perception.apriltag import AprilTag
+from furniture_bench.utils.draw import draw_tags
+from furniture_bench.config import config
+
+
 from ipdb import set_trace as bp
 
 import argparse
 
 
 poly_util = PolymetisHelper()
+
+
+def detect_draw(april_tag: AprilTag, cam: RealsenseCam):
+    color_frame, depth_frame = cam.get_frame()
+    depth_image = np.asanyarray(depth_frame.get_data()).copy()
+
+    img = np.asanyarray(color_frame.get_data()).copy()
+
+    tags = april_tag.detect(color_frame, cam.intr_param)
+    # Visualize tags.
+    draw_image = draw_tags(img.copy(), cam, tags)
+
+    return draw_image, depth_image
+
+
+def to_pose_mat(pose_):
+    pose_mat = np.eye(4)
+    pose_mat[:-1, -1] = pose_[:3]
+    pose_mat[:-1, :-1] = st.Rotation.from_rotvec(pose_[3:]).as_matrix()
+    return pose_mat
+
+
+def convert_wrist2tip(wrist_pose_mat):
+
+    wrist2tip_tf_mat = np.eye(4)
+    wrist2tip_tf_mat[:-1, -1] = np.array([0.0, 0.0, 0.1034])
+    wrist2tip_tf_mat[:-1, :-1] = st.Rotation.from_quat(
+        [0.0, 0.0, -0.3826834323650898, 0.9238795325112867]
+    ).as_matrix()
+
+    tip_pose_mat = convert_reference_frame_mat(
+        pose_source_mat=wrist2tip_tf_mat,
+        pose_frame_target_mat=np.eye(4),
+        pose_frame_source_mat=wrist_pose_mat,
+    )
+
+    return tip_pose_mat
+
+
+def convert_reference_frame_mat(
+    pose_source_mat, pose_frame_target_mat, pose_frame_source_mat
+):
+
+    # transform that maps from target to source (S = XT)
+    target2source_mat = np.matmul(
+        pose_frame_source_mat, np.linalg.inv(pose_frame_target_mat)
+    )
+
+    # obtain source pose in target frame
+    pose_source_in_target_mat = np.matmul(target2source_mat, pose_source_mat)
+    return pose_source_in_target_mat
+
+
+def wrist_target_to_tip(wrist_target_pose_rv):
+    wrist_target_pose_mat = to_pose_mat(wrist_target_pose_rv)
+    tip_target_pose_mat = convert_wrist2tip(wrist_target_pose_mat)
+    tip_target_pos = tip_target_pose_mat[:-1, -1]
+    tip_target_rv = st.Rotation.from_matrix(tip_target_pose_mat[:-1, :-1]).as_rotvec()
+    tip_target_pose_rv = np.array([*tip_target_pos, *tip_target_rv])
+    return tip_target_pose_rv
+
+
+def convert_tip2wrist(tip_pose_mat):
+
+    tip2wrist_tf_mat = np.eye(4)
+    tip2wrist_tf_mat[:-1, -1] = np.array([0.0, 0.0, -0.1034])
+    tip2wrist_tf_mat[:-1, :-1] = st.Rotation.from_quat(
+        [0.0, 0.0, 0.3826834323650898, 0.9238795325112867]
+    ).as_matrix()
+
+    wrist_pose_mat = convert_reference_frame_mat(
+        pose_source_mat=tip2wrist_tf_mat,
+        pose_frame_target_mat=np.eye(4),
+        pose_frame_source_mat=tip_pose_mat,
+    )
+
+    return wrist_pose_mat
 
 
 def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monotonic):
@@ -84,7 +167,7 @@ def execute_gripper_action(
     if not toggle_gripper:
         return
     if gripper_open:
-        gripper.grasp(0.1, 0.0001, 0.01, blocking=False)
+        gripper.grasp(0.2, 70, blocking=False)
     else:
         gripper.goto(0.08, 0.2, 0.1, blocking=False)
 
@@ -411,35 +494,15 @@ def main():
 
     # setup robot
     franka_ip = "173.16.0.1"
-    # robot_home = torch.Tensor([-0.253, -0.198, 0.026, -2.388, 0.327, 2.407, 1.473])
-    # robot_home = torch.Tensor([-0.2486, -0.3561,  0.0078, -2.4934,  0.4336,  2.6554, -1.8109]) # Old sim home
-    robot_home = torch.Tensor(
-        [
-            -3.2031e-01,
-            -1.1461e-01,
-            1.4063e-01,
-            -2.4171e00,
-            -5.8475e-02,
-            2.4469e00,
-            -8.3714e-01,
-        ]
-    )  # New sim home
+    robot_home = torch.Tensor([-0.253, -0.198, 0.026, -2.388, 0.327, 2.407, 1.473])
     Kq = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
     Kqd = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
 
-    # right_robot = DiffIKWrapper(
-    #     ip_address=franka_ip,
-    #     robot_home=robot_home,
-    #     Kq=Kq,
-    #     Kqd=Kqd,
-    #     chirality = "right",
-    # )
     robot = DiffIKWrapper(
         ip_address=franka_ip,
         robot_home=robot_home,
         Kq=Kq,
         Kqd=Kqd,
-        chirality="left",
     )
     gripper = GripperInterface(ip_address=franka_ip)
 
@@ -463,10 +526,19 @@ def main():
     frame_rate = rs_cfg.FRAME_RATE  # fps
 
     camera_serials = [
-        "317422075533",  # Global camera 1
-        "843112073228",  # Wrist camera
+        # "242622071805",  # Global camera 1
+        # "242522072326",  # Wrist camera
         # "243522073271",  # Global camera 2
     ]
+
+    cam1 = RealsenseCam(
+        # "242622071805",  # Global camera 1
+        # "242522072326", # Wrist camera
+        "243522073271",  # Global camera 2
+        config["camera"]["color_img_size"],
+        config["camera"]["depth_img_size"],
+        config["camera"]["frame_rate"],
+    )
 
     print(f"Camera serials: {camera_serials}")
 
@@ -498,23 +570,26 @@ def main():
         robot.reset(randomize=True)
 
         episode_data = {}
-        episode_data["observations"] = []
-        episode_data["actions"] = []
-        episode_data["joint_targets"] = []
-        episode_data["task"] = args.task
+        # episode_data["observations"] = []
+        # episode_data["actions"] = []
+        # episode_data["joint_targets"] = []
+        # episode_data["task"] = args.task
 
-        # assume all real world demos that we actually save are success
-        episode_data["success"] = True
-        episode_data["args"] = args.__dict__
+        # # assume all real world demos that we actually save are success
+        # episode_data["success"] = True
+        # episode_data["args"] = args.__dict__
+
+        episode_data["images"] = []
+        episode_data["camera_poses"] = []
+        episode_data["joint_positions"] = []
 
         # initial metadata dict
-        metadata = dict(
-            sm_dpos_scalar=sm_dpos_scalar,
-            sm_drot_scalar=sm_drot_scalar,
-            Kq=Kq.cpu().numpy(),
-            Kqd=Kqd.cpu().numpy(),
-        )
-        episode_data["metadata"] = metadata
+        # metadata = dict(
+        #     sm_dpos_scalar=sm_dpos_scalar,
+        #     sm_drot_scalar=sm_drot_scalar,
+        #     Kq=Kq.cpu().numpy(),
+        #     Kqd=Kqd.cpu().numpy(),
+        # )
 
         translation, quat_xyzw = robot.get_ee_pose()
         rotvec = st.Rotation.from_quat(quat_xyzw.numpy()).as_rotvec()
@@ -559,8 +634,6 @@ def main():
             # get robot state/image observation
             observation = obs_act_helper.get_observation()
 
-            # dexhub.log_obs(observation)
-
             # get and unpack action
             action_struct = obs_act_helper.get_action()
             action_current_pose_mat = action_struct.current_pose_mat
@@ -590,41 +663,73 @@ def main():
                     grasp_flag=grasp_flag,
                     rm=True,
                 )
-                episode_data["actions"].append(action)
-                episode_data["joint_targets"].append(joint_position_targets)
-                episode_data["observations"].append(observation)
 
             target_pose = polypose2target(robot.get_ee_pose())
             tip_target_pose = wrist_target_to_tip(target_pose)
             # obs_act_helper.set_target_pose(target_pose)
             obs_act_helper.set_target_pose(tip_target_pose)
 
-            # dexhub.log_action(tip_target_pose)
+            translation, quat_xyzw = robot.get_ee_pose()
+            april_tag = AprilTag(tag_size=0.0195)
 
-            for key in observation.keys():
-                if not key.startswith("color_image"):
-                    continue
-                cv2.imshow(
-                    key,
-                    cv2.cvtColor(observation[key], cv2.COLOR_BGR2RGB),
+            cv2.namedWindow("RealsenseAprilTag", cv2.WINDOW_AUTOSIZE)
+
+            pose_mat = np.eye(4)
+            pose_mat[:-1, -1] = translation
+            pose_mat[:-1, :-1] = st.Rotation.from_quat(quat_xyzw).as_matrix()
+
+            finger_pose_in_base_frame = convert_wrist2tip(pose_mat)
+
+            # print(finger_pose_in_base_frame)
+
+            tag_pose_in_finger_frame = np.eye(4)
+            tag_pose_in_finger_frame[:-1, :-1] = st.Rotation.from_euler(
+                "XYZ", [-90, 90, 0], degrees=True
+            ).as_matrix()
+
+            color_img, depth_image1 = detect_draw(april_tag, cam1)
+            # color_img2, depth_image2 = detect_draw(april_tag, cam2)
+            # color_img3, depth_image3 = detect_draw(april_tag, cam3)
+            # color_img = np.hstack([color_img1, color_img2, color_img3])
+            color_img = cv2.cvtColor(color_img, cv2.COLOR_RGB2BGR)
+
+            cv2.imshow("Detected tags", color_img)
+
+            # Get the pose of tag in camera frame
+            color_frame, depth_frame = cam1.get_frame()
+
+            tags = april_tag.detect(color_frame, cam1.intr_param)
+
+            if len(tags) > 0:
+                tags = tags[0]
+
+                tag_pose_in_camera_frame = np.eye(4)
+
+                tag_pose_in_camera_frame[:-1, -1:] = tags.pose_t
+                tag_pose_in_camera_frame[:-1, :-1] = tags.pose_R
+
+                # # Want: bTc -> bTf @ fTt @ cTt^-1
+                camera_pose_in_base_frame = (
+                    finger_pose_in_base_frame
+                    @ tag_pose_in_finger_frame
+                    @ np.linalg.inv(tag_pose_in_camera_frame)
                 )
 
-            cv2.waitKey(1)
+                # Write the current data to the episode data
+                frame = np.asanyarray(color_frame.get_data())
+                resized_color_img = cv2.resize(frame, (448, 252))
+                episode_data["images"].append(resized_color_img)
+                episode_data["camera_poses"].append(camera_pose_in_base_frame)
+                episode_data["joint_positions"].append(
+                    robot.get_joint_positions().cpu().numpy()
+                )
 
-            # # Draw the current and target pose (in meshcat)
-            # mc_util.meshcat_frame_show(
-            #     mc_vis,
-            #     f"scene/target_pose_wrist",
-            #     convert_tip2wrist(action_next_pose_mat),
-            # )
-            # mc_util.meshcat_frame_show(
-            #     mc_vis, f"scene/target_pose_tip", action_next_pose_mat
-            # )
-            # mc_util.meshcat_frame_show(
-            #     mc_vis,
-            #     f"scene/current_pose",
-            #     poly_util.polypose2mat(robot.get_ee_pose()),
-            # )
+                print("camera_pose_in_base_frame")
+                print(camera_pose_in_base_frame)
+                print("\n\n")
+
+                k = cv2.waitKey(1)
+                time.sleep(0.01)
 
             precise_wait(t_cycle_end)
             iter_idx += 1

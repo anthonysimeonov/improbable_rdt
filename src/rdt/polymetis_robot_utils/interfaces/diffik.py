@@ -82,9 +82,14 @@ class DiffIKWrapper(RobotInterface):
     wrapper that addds the resolved rate controller + changes quaternion order to xyzw
     """
 
-    def __init__(self, robot_home, Kq, Kqd, *args, **kwargs):
+    def __init__(self, robot_home, Kq, Kqd, chirality, *args, **kwargs):
 
-        super().__init__(*args, **kwargs)
+        if chirality == "left":
+            port = 50123
+        elif chirality == "right":
+            port = 50051
+
+        super().__init__(port=port, *args, **kwargs)
         # self.pos_scalar = 1.0
         # self.rot_scalar = 2.0
         self.pos_scalar = np.array([1.0] * 3)  # x, y, z
@@ -181,8 +186,28 @@ class DiffIKWrapper(RobotInterface):
             ee_pose_mat, dt_pos=dt, dt_rot=dt
         )
 
+        # scalar = 0.1
+
         joint_vel_desired = torch.linalg.lstsq(jacobian, ee_velocity_desired).solution
         joint_pos_desired = joint_pos_current + joint_vel_desired * dt * scalar
+
+        # print(f"c: {joint_pos_current}")
+        # print(f"t: {joint_pos_desired}")
+        # print(f"d: {joint_pos_current-joint_pos_desired}")
+        # print()
+
+        # limit = 0.2
+        # joint_pos_desired = torch.clamp(
+        #     joint_pos_desired, joint_pos_current - limit, joint_pos_current + limit
+        # )
+
+        # last joint limit
+        # last_joint_limit = 0.1
+        # joint_pos_desired[-1] = torch.clamp(
+        #     joint_pos_desired[-1],
+        #     joint_pos_current[-1] - last_joint_limit,
+        #     joint_pos_current[-1] + last_joint_limit,
+        # )
 
         self.update_desired_joint_positions(joint_pos_desired)
 
