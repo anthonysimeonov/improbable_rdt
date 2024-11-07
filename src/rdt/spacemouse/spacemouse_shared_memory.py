@@ -1,6 +1,8 @@
 import multiprocessing as mp
 import time
 
+from multiprocessing.managers import SharedMemoryManager
+
 import numpy as np
 from spnav import (
     SpnavButtonEvent,
@@ -169,3 +171,16 @@ class Spacemouse(mp.Process):
                     time.sleep(1 / self.frequency)
         finally:
             spnav_close()
+
+
+if __name__ == "__main__":
+    shmem_manager = SharedMemoryManager()
+    sm = Spacemouse(shmem_manager)
+    shmem_manager.start()
+    sm.start()
+    while True:
+        print(sm.get_motion_state())
+        time.sleep(0.01)
+
+    sm.stop()
+    shmem_manager.shutdown()
