@@ -392,8 +392,8 @@ def main():
     parser.add_argument("--frequency", type=int, default=10)  # 30
     parser.add_argument("--command_latency", type=float, default=0.01)
     parser.add_argument("--deadzone", type=float, default=0.05)
-    parser.add_argument("--max-pos-speed", type=float, default=1.0)
-    parser.add_argument("--max-rot-speed", type=float, default=1.5)
+    parser.add_argument("--max-pos-speed", type=float, default=2)
+    parser.add_argument("--max-rot-speed", type=float, default=3)
     parser.add_argument("--resize-images", action="store_true")
     parser.add_argument("--use_lcm", action="store_true")
     parser.add_argument("--save_dir", required=True)
@@ -411,8 +411,7 @@ def main():
 
     # setup robot
     franka_ip = "173.16.0.1"
-    # robot_home = torch.Tensor([-0.253, -0.198, 0.026, -2.388, 0.327, 2.407, 1.473])
-    # robot_home = torch.Tensor([-0.2486, -0.3561,  0.0078, -2.4934,  0.4336,  2.6554, -1.8109]) # Old sim home
+
     robot_home = torch.Tensor(
         [
             -3.2031e-01,
@@ -427,13 +426,6 @@ def main():
     Kq = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
     Kqd = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
 
-    # right_robot = DiffIKWrapper(
-    #     ip_address=franka_ip,
-    #     robot_home=robot_home,
-    #     Kq=Kq,
-    #     Kqd=Kqd,
-    #     chirality = "right",
-    # )
     robot = DiffIKWrapper(
         ip_address=franka_ip,
         robot_home=robot_home,
@@ -463,9 +455,9 @@ def main():
     frame_rate = rs_cfg.FRAME_RATE  # fps
 
     camera_serials = [
-        "317422075533",  # Global camera 1
-        "843112073228",  # Wrist camera
-        # "243522073271",  # Global camera 2
+        "242622071805",  # Global camera 1
+        "317422075533",  # Wrist camera
+        "242522072326",  # Global camera 2
     ]
 
     print(f"Camera serials: {camera_serials}")
@@ -537,7 +529,6 @@ def main():
             show_images=False,
         )
 
-        # obs_act_helper.set_target_pose(target_pose)
         obs_act_helper.set_target_pose(tip_target_pose)
         obs_act_helper.set_constants(
             max_pos_speed=args.max_pos_speed,

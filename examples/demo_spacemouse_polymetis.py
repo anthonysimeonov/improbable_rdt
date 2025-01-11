@@ -14,6 +14,7 @@ import meshcat
 from rdt.spacemouse.spacemouse_shared_memory import Spacemouse
 
 from polymetis import GripperInterface, RobotInterface
+
 # from rdt.polymetis_robot_utils.plan_exec_util import PlanningHelper
 # from rdt.polymetis_robot_utils.traj_util import PolymetisTrajectoryUtil
 from rdt.polymetis_robot_utils.polymetis_util import PolymetisHelper
@@ -22,13 +23,14 @@ from rdt.common import mc_util
 
 
 import argparse
+
 parser = argparse.ArgumentParser()
-parser.add_argument('-p', '--port_vis', type=int, default=6000) 
-parser.add_argument('--frequency', type=int, default=10)  # 30
-parser.add_argument('--command_latency', type=float, default=0.01)
-parser.add_argument('--deadzone', type=float, default=0.05)
-parser.add_argument('--max_pos_speed', type=float, default=0.3)
-parser.add_argument('--max_rot_speed', type=float, default=0.7)
+parser.add_argument("-p", "--port_vis", type=int, default=6000)
+parser.add_argument("--frequency", type=int, default=10)  # 30
+parser.add_argument("--command_latency", type=float, default=0.01)
+parser.add_argument("--deadzone", type=float, default=0.05)
+parser.add_argument("--max_pos_speed", type=float, default=0.3)
+parser.add_argument("--max_rot_speed", type=float, default=0.7)
 
 args = parser.parse_args()
 
@@ -73,7 +75,7 @@ def main():
 
             self.gripper.grasp(speed, force)
 
-    franka_ip = "173.16.0.1" 
+    franka_ip = "173.16.0.1"
     # robot = RobotInterface(ip_address=franka_ip)
     robot = DiffIKWrapper(ip_address=franka_ip)
     # robot.set_pos_rot_scalars(pos=np.array([1.5]*3))
@@ -81,11 +83,11 @@ def main():
 
     # Kq_new = torch.Tensor([40., 30., 50., 25., 35., 25., 10.])
     # Kqd_new = torch.Tensor([4., 6., 5., 5., 3., 2., 1.])
-    pd_ratio = torch.Tensor([10.,  5., 10.,  5., 11.67, 12.5, 10.])
-    Kq_new = torch.Tensor([150., 120., 160., 100., 110., 100.,  40.])
+    pd_ratio = torch.Tensor([10.0, 5.0, 10.0, 5.0, 11.67, 12.5, 10.0])
+    Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
 
     # Kq_new = torch.Tensor([320., 240., 350., 200., 200., 260.,  70.])  # pretty good with 30hz, more jerky with 10hz
-    # Kq_new = torch.Tensor([350., 250., 350., 210., 220., 260.,  70.])  
+    # Kq_new = torch.Tensor([350., 250., 350., 210., 220., 260.,  70.])
     # Kqd_new = Kq_new / pd_ratio
 
     # Kq_new = torch.Tensor([400.0, 400.0, 400.0, 400.0, 250.0, 150.0, 50.0])
@@ -93,7 +95,7 @@ def main():
 
     Kqd_new = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
 
-    # Kx_new = torch.Tensor([750., 750., 750.,  15.,  15.,  15.]) 
+    # Kx_new = torch.Tensor([750., 750., 750.,  15.,  15.,  15.])
     # Kxd_new = torch.Tensor([37., 37., 37.,  2.,  2.,  2.])
 
     # robot.start_joint_impedance()
@@ -106,9 +108,9 @@ def main():
     # init_joint_positions = neutral_joint_positions
     gripper_open = True
 
-    zmq_url=f'tcp://127.0.0.1:{args.port_vis}'
+    zmq_url = f"tcp://127.0.0.1:{args.port_vis}"
     mc_vis = meshcat.Visualizer(zmq_url=zmq_url)
-    mc_vis['scene'].delete()
+    mc_vis["scene"].delete()
 
     translation, quat_xyzw = robot.get_ee_pose()
     # pose_mat = poly_util.polypose2mat(robot.get_ee_pose())
@@ -125,7 +127,7 @@ def main():
     def to_pose_mat(pose_):
         pose_mat = np.eye(4)
         pose_mat[:-1, -1] = pose_[:3]
-        pose_mat[:-1, :-1] = st.Rotation.from_rotvec(pose_[3:]).as_matrix() 
+        pose_mat[:-1, :-1] = st.Rotation.from_rotvec(pose_[3:]).as_matrix()
         return pose_mat
 
     with SharedMemoryManager() as shm_manager:
@@ -147,12 +149,20 @@ def main():
                 dpos = sm_state[:3] * (args.max_pos_speed / frequency)
                 drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
                 drot = st.Rotation.from_euler("xyz", drot_xyz)
-                
+
                 # if False:
                 last_grip_step += 1
-                if sm.is_button_pressed(0) or sm.is_button_pressed(1) and last_grip_step > 10:
+                if (
+                    sm.is_button_pressed(0)
+                    or sm.is_button_pressed(1)
+                    and last_grip_step > 10
+                ):
                     # gripper.gripper_close() if gripper_open else gripper.gripper_open()
-                    gripper.goto(0.0, 0.05, 0.1, blocking=False) if gripper_open else gripper.goto(0.08, 0.05, 0.1, blocking=False)
+                    (
+                        gripper.goto(0.0, 0.05, 0.1, blocking=False)
+                        if gripper_open
+                        else gripper.goto(0.08, 0.05, 0.1, blocking=False)
+                    )
                     gripper_open = not gripper_open
                     last_grip_step = 0
 
@@ -167,16 +177,11 @@ def main():
                 des_ee_vel = torch.Tensor([*dpos, *drot_xyz])
 
                 # robot.update_desired_ee_velocities(des_ee_vel)
-                robot.update_desired_ee_pose(new_target_pose_mat, dt=dt) #, scalar=0.5)
+                robot.update_desired_ee_pose(
+                    new_target_pose_mat, dt=dt
+                )  # , scalar=0.5)
                 # target_pose = new_target_pose
                 target_pose = polypose2target(robot.get_ee_pose())
-                
-                # Draw the current target pose (in meshcat)
-                mc_util.meshcat_frame_show(mc_vis, f'scene/target_pose', new_target_pose_mat)
-                mc_util.meshcat_frame_show(mc_vis, f'scene/current_pose', poly_util.polypose2mat(robot.get_ee_pose()))
-                # with suppress_stdout():
-                    # remove_handles(pose_handles)
-                    # pose_handles = draw_pose(to_pb_pose(target_pose))
 
                 precise_wait(t_cycle_end)
                 iter_idx += 1

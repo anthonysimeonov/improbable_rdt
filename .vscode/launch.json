@@ -1,0 +1,26 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--save_dir",
+                "./data/training/real_demos/toothpaste_sort_test",
+                "--task",
+                "toothpaste_sort_v3",
+                "--frequency",
+                "100",
+                "--resize-images",
+                "--n-demos",
+                "10"
+            ]
+        }
+    ]
+}

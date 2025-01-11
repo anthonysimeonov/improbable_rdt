@@ -88,7 +88,7 @@ class DiffIKWrapper(RobotInterface):
             port = 50123
         elif chirality == "right":
             port = 50051
-
+        kwargs["enforce_version"] = False
         super().__init__(port=port, *args, **kwargs)
         # self.pos_scalar = 1.0
         # self.rot_scalar = 2.0
