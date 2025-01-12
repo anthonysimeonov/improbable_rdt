@@ -1,9 +1,12 @@
 from pathlib import Path
 import pickle
+import random
 import time
-from multiprocessing.managers import SharedMemoryManager
+
+# from multiprocessing.managers import SharedMemoryManager
 from typing import List
 import cv2
+from src.rdt.polymetis_robot_utils.interfaces.reqrep import GripperAction, RobotState
 import torch
 import numpy as np
 from datetime import datetime
@@ -24,7 +27,7 @@ from rdt.common.demo_util import CollectEnum
 from rdt.image.factory import enable_single_realsense
 from rdt.teleop.utils import scale_scripted_action
 from rdt.robot.transforms import convert_tip2wrist, convert_wrist2tip
-
+from rdt.polymetis_robot_utils.interfaces.reqrep import Action, RobotState, Reset, Ack
 from ipdb import set_trace as bp
 
 import argparse
@@ -297,7 +300,6 @@ class ObsActHelper:
     def get_rgbd_rs(self, pipe) -> dict:
         align_to = rs.stream.color
         align = rs.align(align_to)
-
         try:
             # Get frameset of color and depth
             frames = pipe.wait_for_frames(100)  # 100
@@ -329,25 +331,25 @@ class ObsActHelper:
         obs = dict()
 
         # get the rgb images
-        for i, pipe in enumerate(self.image_pipelines, start=1):
-            img = self.get_rgbd_rs(pipe)
+        # for i, pipe in enumerate(self.image_pipelines, start=1):
+        #     img = self.get_rgbd_rs(pipe)
 
-            if self.resize_images:
-                img["rgb"] = cv2.resize(
-                    img["rgb"], (self.image_width, self.image_height)
-                )
-                img["depth"] = cv2.resize(
-                    img["depth"], (self.image_width, self.image_height)
-                )
+        #     if self.resize_images:
+        #         img["rgb"] = cv2.resize(
+        #             img["rgb"], (self.image_width, self.image_height)
+        #         )
+        #         img["depth"] = cv2.resize(
+        #             img["depth"], (self.image_width, self.image_height)
+        #         )
 
-            if self.show_images:
-                cv2.imshow(f"rgb{i}", cv2.cvtColor(img["rgb"], cv2.COLOR_BGR2RGB))
-                cv2.waitKey(1)
+        #     if self.show_images:
+        #         cv2.imshow(f"rgb{i}", cv2.cvtColor(img["rgb"], cv2.COLOR_BGR2RGB))
+        #         cv2.waitKey(1)
 
-            obs[f"color_image{i}"] = img["rgb"]
+        #     obs[f"color_image{i}"] = img["rgb"]
 
-            if self.include_depth:
-                obs[f"depth_image{i}"] = img["depth"]
+        #     if self.include_depth:
+        #         obs[f"depth_image{i}"] = img["depth"]
 
         # get the robot state
         current_ee_wrist_pose_mat = poly_util.polypose2mat(self.robot.get_ee_pose())
@@ -479,10 +481,25 @@ def main():
 
     # Setup control interfaces
     keyboard = KeyboardInterface()
-    shm_manager = SharedMemoryManager()
-    shm_manager.start()
-    sm = Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone)
-    sm.start()
+    # shm_manager = SharedMemoryManager()
+    # shm_manager.start()
+    # sm = Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone)
+    # sm.start()
+
+    import zmq
+
+    # TODO: remove harcoded port
+    port = 5555
+    ctx = zmq.Context()
+    socket = ctx.socket(zmq.REP)
+
+    socket.setsockopt(zmq.RCVHWM, 1)
+    socket.setsockopt(zmq.SNDHWM, 1)
+    socket.setsockopt(zmq.IMMEDIATE, 1)
+    socket.setsockopt(zmq.LINGER, 0)
+    socket.setsockopt(zmq.RCVTIMEO, -1)
+    socket.setsockopt(zmq.SNDTIMEO, -1)
+    socket.bind(f"tcp://*:{port}")
 
     # === Main loop ===
     while n_successes < args.n_demos:
@@ -518,7 +535,7 @@ def main():
         stop = False
 
         obs_act_helper = ObsActHelper(
-            sm=sm,
+            sm=None,
             keyboard=keyboard,
             robot=robot,
             gripper=gripper,
@@ -542,65 +559,95 @@ def main():
         print(f"Start collecting!")
         while not stop:
             # calculate timing
-            t_cycle_end = t_start + (iter_idx + 1) * dt
-            t_sample = t_cycle_end - command_latency
+            # t_cycle_end = t_start + (iter_idx + 1) * dt
+            # t_sample = t_cycle_end - command_latency
             # t_command_target = t_cycle_end + dt
-            precise_wait(t_sample)
+            # precise_wait(t_sample)
 
             # get robot state/image observation
-            observation = obs_act_helper.get_observation()
-
-            # dexhub.log_obs(observation)
+            # observation = obs_act_helper.get_observation()
 
             # get and unpack action
-            action_struct = obs_act_helper.get_action()
-            action_current_pose_mat = action_struct.current_pose_mat
-            action_next_pose_mat = action_struct.next_pose_mat
-            grasp_flag = action_struct.grasp_flag
-            action_taken = action_struct.action_taken
-            collect_enum = action_struct.collect_enum
-            is_gripper_open = action_struct.is_gripper_open
-            toggle_gripper = action_struct.toggle_gripper
+            # action_struct = obs_act_helper.get_action()
+            # action_current_pose_mat = action_struct.current_pose_mat
+            # action_next_pose_mat = action_struct.next_pose_mat
+            # grasp_flag = action_struct.grasp_flag
+            # action_taken = action_struct.action_taken
+            # collect_enum = action_struct.collect_enum
+            # is_gripper_open = action_struct.is_gripper_open
+            # toggle_gripper = action_struct.toggle_gripper
 
-            if collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
-                break
+            # if collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
+            #     break
 
-            # send command to the robot
-            # robot.update_desired_ee_pose(action_next_pose_mat, dt=dt)
-            joint_position_targets = robot.update_desired_ee_pose(
-                convert_tip2wrist(action_next_pose_mat), dt=dt
-            )
-            execute_gripper_action(gripper, toggle_gripper, is_gripper_open)
+            data = socket.recv_pyobj()
+            if isinstance(data, RobotState):
+                oh_obs = obs_act_helper.get_observation()
+                # obs = RobotState.from_matrices(
+                #     ee_pos=oh_obs["robot_state"]["ee_pos"],
+                #     ee_quat=oh_obs["robot_state"]["ee_quat"],
+                #     qvel=np.array([-99999] * 7),
+                #     qpos=oh_obs["robot_state"]["joint_positions"],
+                #     gripper_qpos_scalar=np.array(
+                #         [oh_obs["robot_state"]["gripper_width"]]
+                #     ),
+                # )
+                response = obs_act_helper.get_observation()
+                response = RobotState()
+                response.qpos = oh_obs["robot_state"]["ee_pos"]
+                response.ee_pos = oh_obs["robot_state"]["ee_pos"]
+                response.ee_quat = oh_obs["robot_state"]["ee_quat"]
+                response.qvel = np.array([-99999] * 7)
+                response.gripper_qpos_scalar = (
+                    np.array([oh_obs["robot_state"]["gripper_width"]]),
+                )
+
+            elif isinstance(data, Action):
+                # send command to the robot
+                joint_position_targets = robot.update_desired_ee_pose(
+                    convert_tip2wrist(data.next_pose_mat[:16].reshape(4, 4)), dt=dt
+                )
+
+                # # execute_gripper_action(
+                # #     gripper,
+                # #     (data.gripper_action == GripperAction.OPEN)
+                # #     != (data.gripper_qpos_scalar > 0.04),
+                # #     data.gripper_qpos_scalar > 0.04,
+                # # )
+
+                target_pose = polypose2target(robot.get_ee_pose())
+                tip_target_pose = wrist_target_to_tip(target_pose)
+                obs_act_helper.set_target_pose(tip_target_pose)
+
+                response = Ack()
+            elif isinstance(data, Reset):
+                robot.reset(randomize=True)
+                response = Ack()
+
+            socket.send_pyobj(response)
 
             # log the data
-            if action_taken:
-                # convert to delta actions (where action quat is a right mult.)
-                action = obs_act_helper.to_isaac_dpose_from_abs(
-                    current_pose_mat=action_current_pose_mat,
-                    goal_pose_mat=action_next_pose_mat,
-                    grasp_flag=grasp_flag,
-                    rm=True,
-                )
-                episode_data["actions"].append(action)
-                episode_data["joint_targets"].append(joint_position_targets)
-                episode_data["observations"].append(observation)
+            # if action_taken:
+            #     # convert to delta actions (where action quat is a right mult.)
+            #     action = obs_act_helper.to_isaac_dpose_from_abs(
+            #         current_pose_mat=action_current_pose_mat,
+            #         goal_pose_mat=action_next_pose_mat,
+            #         grasp_flag=grasp_flag,
+            #         rm=True,
+            #     )
+            #     episode_data["actions"].append(action)
+            #     episode_data["joint_targets"].append(joint_position_targets)
+            #     episode_data["observations"].append(observation)
 
-            target_pose = polypose2target(robot.get_ee_pose())
-            tip_target_pose = wrist_target_to_tip(target_pose)
-            # obs_act_helper.set_target_pose(target_pose)
-            obs_act_helper.set_target_pose(tip_target_pose)
+            # for key in observation.keys():
+            #     if not key.startswith("color_image"):
+            #         continue
+            #     cv2.imshow(
+            #         key,
+            #         cv2.cvtColor(observation[key], cv2.COLOR_BGR2RGB),
+            #     )
 
-            # dexhub.log_action(tip_target_pose)
-
-            for key in observation.keys():
-                if not key.startswith("color_image"):
-                    continue
-                cv2.imshow(
-                    key,
-                    cv2.cvtColor(observation[key], cv2.COLOR_BGR2RGB),
-                )
-
-            cv2.waitKey(1)
+            # cv2.waitKey(1)
 
             # # Draw the current and target pose (in meshcat)
             # mc_util.meshcat_frame_show(
@@ -617,7 +664,7 @@ def main():
             #     poly_util.polypose2mat(robot.get_ee_pose()),
             # )
 
-            precise_wait(t_cycle_end)
+            # precise_wait(t_cycle_end)
             iter_idx += 1
 
             # print(
@@ -626,16 +673,16 @@ def main():
 
         global_total_time = time.time() - global_start_time
         print(f"Time elapsed: {global_total_time}")
-        if collect_enum == CollectEnum.SUCCESS:
-            # save the data
-            with open(pkl_path, "wb") as f:
-                pickle.dump(episode_data, f)
+        # if collect_enum == CollectEnum.SUCCESS:
+        #     # save the data
+        #     with open(pkl_path, "wb") as f:
+        #         pickle.dump(episode_data, f)
 
-            n_successes += 1
+        #     n_successes += 1
 
     # Clean up resources
-    sm.stop()
-    shm_manager.shutdown()
+    # sm.stop()
+    # shm_manager.shutdown()
 
 
 if __name__ == "__main__":
