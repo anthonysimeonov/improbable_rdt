@@ -11,6 +11,11 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Union
 from enum import IntEnum
 from dataclasses import field, dataclass
+from rdt.polymetis_robot_utils.interfaces.controller import (
+    RobotState,
+    Chirality,
+    Action,
+)
 
 
 # #
@@ -309,27 +314,20 @@ class GripperAction(IntEnum):
 from typing import Dict, Type
 
 
-@dataclass
-class Action:
-    next_pose_mat: np.ndarray
-    gripper_action: GripperAction
-    action_taken: bool
+# class RobotState:
+#     qpos: np.ndarray
+#     qvel: np.ndarray
+#     ee_pos: np.ndarray
+#     ee_quat: np.ndarray
+#     ee_lin_vel: Optional[np.ndarray]
+#     ee_ang_vel: Optional[np.ndarray]
+#     gripper_qpos_scalar: np.ndarray
 
-
-class RobotState:
-    qpos: np.ndarray
-    qvel: np.ndarray
-    ee_pos: np.ndarray
-    ee_quat: np.ndarray
-    ee_lin_vel: Optional[np.ndarray]
-    ee_ang_vel: Optional[np.ndarray]
-    gripper_qpos_scalar: np.ndarray
-
-    @property
-    def xyz_rotvec(self):
-        return np.concatenate(
-            [self.ee_pos, st.Rotation.from_quat(self.ee_quat).as_rotvec()]
-        )
+#     @property
+#     def xyz_rotvec(self):
+#         return np.concatenate(
+#             [self.ee_pos, st.Rotation.from_quat(self.ee_quat).as_rotvec()]
+#         )
 
 
 class Reset:
@@ -364,7 +362,7 @@ class Client:
         self.socket.send_pyobj(r)
         return self.socket.recv_pyobj()
 
-    def act(self, action: Action):
+    def act(self, action: Dict[Chirality, Action]):
         self.socket.send_pyobj(action)
         self.socket.recv_pyobj()
 
