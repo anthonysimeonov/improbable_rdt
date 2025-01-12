@@ -61,7 +61,7 @@ if __name__ == "__main__":
     platform_client = Client()
     from multiprocessing.managers import SharedMemoryManager
 
-    msc = MultiSpacemouseControl([Chirality.RIGHT])
+    msc = MultiSpacemouseControl([Chirality.RIGHT], 1 / 0.01)
 
     platform_client.reset()
 

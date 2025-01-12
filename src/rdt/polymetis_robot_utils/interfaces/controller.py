@@ -74,11 +74,12 @@ class MultiSpacemouseControl(TeleopControllerBase):
     def __init__(
         self,
         chiralities: Iterable[Chirality],
+        operating_frequency: float = 20,
         read_frequency: float = 200,
         sm_dpos_scalar: np.array = np.array([1.8] * 3),
         sm_drot_scalar: np.array = np.array([4.0] * 3),
-        max_pos_speed: float = 10,
-        max_rot_speed: float = 15,
+        max_pos_speed: float = 3,
+        max_rot_speed: float = 5,
     ):
         super().__init__()
         self.sm_dpos_scalar = sm_dpos_scalar
@@ -86,6 +87,7 @@ class MultiSpacemouseControl(TeleopControllerBase):
         self.max_pos_speed = max_pos_speed
         self.max_rot_speed = max_rot_speed
         self.read_frequency = read_frequency
+        self.operating_frequency = operating_frequency
 
         hid_paths = [
             dev.path
@@ -169,13 +171,15 @@ class MultiSpacemouseControl(TeleopControllerBase):
 
         dpos = (
             latest_state["action"][:3]
-            * (self.max_pos_speed / self.read_frequency)
+            * (self.max_pos_speed / self.operating_frequency)
             * self.sm_dpos_scalar
         )
 
         drot_xyz = latest_state["action"][3:]
         drot_rotvec = st.Rotation.from_euler("xyz", drot_xyz).as_rotvec()
-        drot_rotvec *= (self.max_rot_speed / self.read_frequency) * self.sm_drot_scalar
+        drot_rotvec *= (
+            self.max_rot_speed / self.operating_frequency
+        ) * self.sm_drot_scalar
         drot = st.Rotation.from_rotvec(drot_rotvec)
 
         action_taken = not np.allclose(dpos, 0.0) and not np.allclose(drot_xyz, 0.0)
