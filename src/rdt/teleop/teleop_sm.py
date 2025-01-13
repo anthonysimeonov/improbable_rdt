@@ -113,7 +113,7 @@ class ActionContainer:
 
 
 # Setup observation and action helpers
-class ObsActHelper:
+class Platform:
     def __init__(
         self,
         sm: Spacemouse,
@@ -156,8 +156,6 @@ class ObsActHelper:
         self.grasp_flag = -1
         self.gripper_open = True
         self.last_grip_step = 0
-        self.steps_since_grasp = 0
-        self.record_latency_when_grasping = 15
 
     @staticmethod
     def to_isaac_dpose_from_abs(current_pose_mat, goal_pose_mat, grasp_flag, rm=True):
@@ -196,160 +194,8 @@ class ObsActHelper:
         # [x, y, z, dx, dy, dz] (rotvec!)
         self.target_pose = target_pose
 
-    def get_action(self):
-        # get teleop command
-        sm_state = self.sm.get_motion_state_transformed()
-
-        # scale pos command
-        dpos = (
-            sm_state[:3] * (self.max_pos_speed / self.frequency) * self.sm_dpos_scalar
-        )
-
-        # convert and scale rot command
-        drot_xyz = sm_state[3:]
-        drot_rotvec = st.Rotation.from_euler("xyz", drot_xyz).as_rotvec()
-        drot_rotvec *= (self.max_rot_speed / self.frequency) * self.sm_drot_scalar
-        drot = st.Rotation.from_rotvec(drot_rotvec)
-
-        # get keyboard actions/flags
-        keyboard_action, collect_enum = self.keyboard.get_action()
-
-        # check if action is taken
-        if np.allclose(dpos, 0.0) and np.allclose(drot_xyz, 0.0):
-            action_taken = False
-        else:
-            action_taken = True
-
-        # manage grasping
-        self.steps_since_grasp += 1
-        if self.steps_since_grasp < self.record_latency_when_grasping:
-            action_taken = True
-
-        self.last_grip_step += 1
-        is_gripper_open = self.gripper_open
-        if (
-            self.sm.is_button_pressed(0)
-            or self.sm.is_button_pressed(1)
-            and self.last_grip_step > 10
-        ):
-            toggle_gripper = True
-
-            self.gripper_open = not self.gripper_open
-            self.last_grip_step = 0
-            self.grasp_flag = -1 * self.grasp_flag
-            self.steps_since_grasp = 0
-        else:
-            toggle_gripper = False
-
-        # Make a delta action of xyz + quat_xyzw that we can scale before sending to robot
-        delta_action = np.concatenate(
-            [dpos, drot.as_quat(), np.array([self.grasp_flag])]
-        )
-
-        # overwrite action from keyboard action (for screwing)
-        kb_taken = False
-        if not (np.allclose(keyboard_action[3:6], 0.0)):
-            delta_action[3:7] = keyboard_action[3:7]
-            kb_taken = True
-            action_taken = True
-
-        pos_bounds_m = 0.025 * 2
-        ori_bounds_deg = 20
-
-        delta_action = (
-            scale_scripted_action(
-                torch.from_numpy(delta_action).unsqueeze(0),
-                pos_bounds_m=pos_bounds_m,
-                ori_bounds_deg=ori_bounds_deg,
-            )
-            .squeeze()
-            .numpy()
-        )
-
-        # write out action
-        new_target_pose = self.target_pose.copy()
-        dpos, drot = delta_action[:3], st.Rotation.from_quat(delta_action[3:7])
-        new_target_pose[:3] += dpos
-        # new_target_pose[3:] = (
-        #     drot * st.Rotation.from_rotvec(self.target_pose[3:])
-        # ).as_rotvec()
-        if kb_taken:
-            # right multiply (more intuitive for screwing)
-            new_target_pose[3:] = (
-                st.Rotation.from_rotvec(self.target_pose[3:]) * drot
-            ).as_rotvec()
-        else:
-            # left multiply (more intuitive for spacemouse)
-            new_target_pose[3:] = (
-                drot * st.Rotation.from_rotvec(self.target_pose[3:])
-            ).as_rotvec()
-        new_target_pose_mat = self.to_pose_mat(new_target_pose)
-        current_pose_mat = self.to_pose_mat(self.target_pose)
-
-        action_struct = ActionContainer(
-            current_pose_mat=current_pose_mat,
-            next_pose_mat=new_target_pose_mat,
-            grasp_flag=self.grasp_flag,
-            action_taken=action_taken,
-            collect_enum=collect_enum,
-            is_gripper_open=is_gripper_open,
-            toggle_gripper=toggle_gripper,
-        )
-        return action_struct
-
-    def get_rgbd_rs(self, pipe) -> dict:
-        align_to = rs.stream.color
-        align = rs.align(align_to)
-        try:
-            # Get frameset of color and depth
-            frames = pipe.wait_for_frames(100)  # 100
-            # frames = pipe.wait_for_frames(100)
-        except RuntimeError as e:
-            print(f"Runtime error: {e}")
-            print(
-                f"Couldn't get frame for device: {pipe.get_active_profile().get_device()}"
-            )
-            # continue
-            raise
-
-        # Align the depth frame to color frame
-        aligned_frames = align.process(frames)
-
-        # Get aligned frames
-        aligned_depth_frame = aligned_frames.get_depth_frame()
-        color_frame = aligned_frames.get_color_frame()
-
-        depth_image = np.asanyarray(aligned_depth_frame.get_data())
-        color_image = np.asanyarray(color_frame.get_data())
-
-        # the .copy() here is super important!
-        img_dict = dict(rgb=color_image.copy(), depth=depth_image.copy())
-
-        return img_dict
-
-    def get_observation(self):
+    def get_observation(self) -> RobotState:
         obs = dict()
-
-        # get the rgb images
-        # for i, pipe in enumerate(self.image_pipelines, start=1):
-        #     img = self.get_rgbd_rs(pipe)
-
-        #     if self.resize_images:
-        #         img["rgb"] = cv2.resize(
-        #             img["rgb"], (self.image_width, self.image_height)
-        #         )
-        #         img["depth"] = cv2.resize(
-        #             img["depth"], (self.image_width, self.image_height)
-        #         )
-
-        #     if self.show_images:
-        #         cv2.imshow(f"rgb{i}", cv2.cvtColor(img["rgb"], cv2.COLOR_BGR2RGB))
-        #         cv2.waitKey(1)
-
-        #     obs[f"color_image{i}"] = img["rgb"]
-
-        #     if self.include_depth:
-        #         obs[f"depth_image{i}"] = img["depth"]
 
         # get the robot state
         current_ee_wrist_pose_mat = poly_util.polypose2mat(self.robot.get_ee_pose())
@@ -363,27 +209,15 @@ class ObsActHelper:
         jacobian = self.robot.robot_model.compute_jacobian(current_joint_positions)
         ee_spatial_velocity = jacobian @ self.robot.get_joint_velocities()
 
-        robot_state_dict = dict(
-            ee_pos=current_ee_pose[:3].numpy(),
-            ee_quat=current_ee_pose[3:7].numpy(),
-            ee_pos_vel=ee_spatial_velocity[:3].numpy(),
-            ee_ori_vel=ee_spatial_velocity[3:6].numpy(),
-            gripper_width=self.gripper.get_state().width,
-            joint_positions=current_joint_positions.numpy(),
-        )
+        robot_state = RobotState()
+        robot_state.ee_pos = current_ee_pose[:3].numpy()
+        robot_state.ee_quat = current_ee_pose[3:7].numpy()
+        robot_state.ee_lin_vel = ee_spatial_velocity[:3].numpy()
+        robot_state.ee_ang_vel = ee_spatial_velocity[3:6].numpy()
+        robot_state.gripper_qpos_scalar = np.array([self.gripper.get_state().width])
+        robot_state.qpos = current_joint_positions.numpy()
 
-        # pack these
-        obs["robot_state"] = robot_state_dict
-
-        return obs
-
-    def posemat2action(self, target_pose_mat: np.ndarray, grasp_flag: int):
-        action = np.zeros(8)
-        action[:3] = target_pose_mat[:-1, -1]
-        action[3:7] = st.Rotation.from_matrix(target_pose_mat[:-1, :-1]).as_quat()
-        action[-1] = grasp_flag
-
-        return action
+        return robot_state
 
 
 def main():
@@ -534,7 +368,7 @@ def main():
         iter_idx = 0
         stop = False
 
-        obs_act_helper = ObsActHelper(
+        obs_act_helper = Platform(
             sm=None,
             keyboard=keyboard,
             robot=robot,
@@ -582,7 +416,6 @@ def main():
 
             data = socket.recv_pyobj()
             if isinstance(data, RobotState):
-                oh_obs = obs_act_helper.get_observation()
                 # obs = RobotState.from_matrices(
                 #     ee_pos=oh_obs["robot_state"]["ee_pos"],
                 #     ee_quat=oh_obs["robot_state"]["ee_quat"],
@@ -593,14 +426,7 @@ def main():
                 #     ),
                 # )
                 response = obs_act_helper.get_observation()
-                response = RobotState()
-                response.qpos = oh_obs["robot_state"]["ee_pos"]
-                response.ee_pos = oh_obs["robot_state"]["ee_pos"]
-                response.ee_quat = oh_obs["robot_state"]["ee_quat"]
                 response.qvel = np.array([-99999] * 7)
-                response.gripper_qpos_scalar = (
-                    np.array([oh_obs["robot_state"]["gripper_width"]]),
-                )
 
             elif isinstance(data, Action):
                 # send command to the robot

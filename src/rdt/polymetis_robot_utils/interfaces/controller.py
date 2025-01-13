@@ -183,13 +183,13 @@ class MultiSpacemouseControl(TeleopControllerBase):
         drot = st.Rotation.from_rotvec(drot_rotvec)
 
         action_taken = not np.allclose(dpos, 0.0) and not np.allclose(drot_xyz, 0.0)
+
         # Determine gripper action (if there is any to be taken)
         gripper_action = None
         if latest_state["gripper"][0]:
             gripper_action = GripperAction.OPEN
         elif latest_state["gripper"][1]:
             gripper_action = GripperAction.CLOSE
-
         if gripper_action is not None:
             self.last_valid_gripper_states[chirality] = gripper_action
         else:
